@@ -1,0 +1,16 @@
+{
+  "name": "RSYSLOG Manager",
+  "short_name": "RSYSLOG",
+  "description": "PWA zur Verwaltung eines RSYSLOG Servers auf Debian-Basis",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    }
+  ]
+}

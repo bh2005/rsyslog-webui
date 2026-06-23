@@ -1,0 +1,20 @@
+:8080 {
+    # Security headers
+    header {
+        X-Content-Type-Options  "nosniff"
+        X-Frame-Options         "SAMEORIGIN"
+        X-XSS-Protection        "1; mode=block"
+        Referrer-Policy         "strict-origin"
+        Permissions-Policy      "geolocation=(), microphone=(), camera=()"
+        -Server
+    }
+
+    handle /api/* {
+        uri strip_prefix /api
+        reverse_proxy host.docker.internal:8000
+    }
+    handle {
+        reverse_proxy web:80
+    }
+    encode gzip
+}

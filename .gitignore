@@ -1,0 +1,41 @@
+# ── Node / Frontend ──────────────────────────────────────────
+node_modules/
+dist/
+.vite/
+
+# ── Python / Backend ─────────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+backend/.venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ── Datenbank / Laufzeit-Daten ───────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+data/
+backend/data/
+
+# ── Docker (lokale Overrides) ─────────────────────────────────
+docker-compose.override.yml
+
+# ── Secrets / Umgebung ───────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── OS / Editor ──────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/settings.json
