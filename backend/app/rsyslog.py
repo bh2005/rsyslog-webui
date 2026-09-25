@@ -699,13 +699,14 @@ async def create_lookup_table(
 HEARTBEAT_WARN_S = 900    # 15 min
 HEARTBEAT_CRIT_S = 3600   # 1 h
 
+# StatsView.vue pollt /heartbeat alle 10s; ohne Cache macht das bei jedem Poll
+# einen vollen rglob()+stat() über alle Host-Verzeichnisse. Kurzer TTL reicht,
+# weil der Warn/Crit-Status ohnehin nur in Minuten-Schwellen greift.
+_HEARTBEAT_CACHE_TTL_S = 15
+_heartbeat_cache: dict[str, tuple[float, list]] = {}  # allowed-key -> (ts, hosts)
 
-@router.get("/heartbeat")
-async def get_heartbeat(current_user: dict = Depends(get_current_user)):
-    allowed = _user_allowed_hosts(current_user["username"])
-    if not SYSLOG_DATA_DIR.exists():
-        return {"hosts": [], "warn_threshold": HEARTBEAT_WARN_S, "crit_threshold": HEARTBEAT_CRIT_S}
 
+def _compute_heartbeat(allowed: Optional[List[str]]) -> list:
     now = time.time()
     result = []
     for host_dir in sorted(SYSLOG_DATA_DIR.iterdir()):
@@ -734,8 +735,25 @@ async def get_heartbeat(current_user: dict = Depends(get_current_user)):
                 "age_seconds": age,
                 "status": "ok" if age < HEARTBEAT_WARN_S else ("warn" if age < HEARTBEAT_CRIT_S else "crit"),
             })
+    return result
 
-    return {"hosts": result, "warn_threshold": HEARTBEAT_WARN_S, "crit_threshold": HEARTBEAT_CRIT_S}
+
+@router.get("/heartbeat")
+async def get_heartbeat(current_user: dict = Depends(get_current_user)):
+    allowed = _user_allowed_hosts(current_user["username"])
+    if not SYSLOG_DATA_DIR.exists():
+        return {"hosts": [], "warn_threshold": HEARTBEAT_WARN_S, "crit_threshold": HEARTBEAT_CRIT_S}
+
+    key = ",".join(sorted(allowed)) if allowed is not None else "*"
+    cached = _heartbeat_cache.get(key)
+    now = time.time()
+    if cached and now - cached[0] < _HEARTBEAT_CACHE_TTL_S:
+        hosts = cached[1]
+    else:
+        hosts = _compute_heartbeat(allowed)
+        _heartbeat_cache[key] = (now, hosts)
+
+    return {"hosts": hosts, "warn_threshold": HEARTBEAT_WARN_S, "crit_threshold": HEARTBEAT_CRIT_S}
 
 
 # ── Event-rate + Anomalie-Erkennung ─────────────────────────────────────────
@@ -812,6 +830,24 @@ def _count_events_per_host(allowed: Optional[List[str]], days_back: int = 14
     return result
 
 
+_EVENT_RATE_CACHE_TTL_S = 120  # StatsView.vue pollt alle 10s; 14-Tage-Rescan über
+# alle Hosts ist teuer (voller Datei-Reread + JSON-Parse pro Zeile) — ohne Cache
+# verursacht das bei dem Poll-Intervall spürbare CPU/IO-Bursts.
+_event_rate_cache: dict[str, tuple[float, dict]] = {}  # allowed-key -> (ts, counts)
+
+
+def _count_events_per_host_cached(allowed: Optional[List[str]], days_back: int = 14) -> dict:
+    """Wie _count_events_per_host, aber mit kurzem TTL-Cache."""
+    key = ",".join(sorted(allowed)) if allowed is not None else "*"
+    cached = _event_rate_cache.get(key)
+    now = time.time()
+    if cached and now - cached[0] < _EVENT_RATE_CACHE_TTL_S:
+        return cached[1]
+    result = _count_events_per_host(allowed, days_back=days_back)
+    _event_rate_cache[key] = (now, result)
+    return result
+
+
 def _load_anomaly_times() -> Dict[str, str]:
     if ANOMALY_ALERTS_JSON.exists():
         try:
@@ -854,7 +890,7 @@ def _send_anomaly_email(host: str, current_count: int, avg_count: float,
 @router.get("/event-rate")
 async def get_event_rate(current_user: dict = Depends(get_current_user)):
     allowed = _user_allowed_hosts(current_user["username"])
-    counts  = _count_events_per_host(allowed, days_back=14)
+    counts  = _count_events_per_host_cached(allowed, days_back=14)
 
     hourly_out = []
     daily_out  = []
