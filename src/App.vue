@@ -203,6 +203,10 @@
     </div>
 
     <main class="app-main">
+      <div v-if="!connection.online" class="conn-banner">
+        <span style="font-size:16px;">⚠️</span>
+        <span>Verbindung zum Server unterbrochen — versuche erneut zu verbinden…</span>
+      </div>
       <router-view />
     </main>
 
@@ -214,15 +218,22 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from './stores/auth';
+import { useConnectionStore } from './stores/connection';
 import { apiClient } from './api';
 import HelpPanel from './components/HelpPanel.vue';
 
-const route  = useRoute();
-const router = useRouter();
-const auth   = useAuthStore();
+const route      = useRoute();
+const router     = useRouter();
+const auth       = useAuthStore();
+const connection = useConnectionStore();
 
 const user    = computed(() => auth.user);
 const isAdmin = computed(() => auth.isAdmin);
+
+// Regelmäßiger Health-Ping, damit das Verbindungsbanner auch auf Seiten ohne
+// eigenes Polling (z.B. Konfiguration, Einstellungen) zuverlässig erkennt,
+// wenn das Backend wieder erreichbar ist — nicht nur bei Interaktion.
+let connectionPingTimer: ReturnType<typeof setInterval> | null = null;
 
 function logout() {
   auth.logout();
@@ -239,8 +250,16 @@ function onGlobalKey(e: KeyboardEvent) {
   }
 }
 
-onMounted(() => document.addEventListener('keydown', onGlobalKey));
-onUnmounted(() => document.removeEventListener('keydown', onGlobalKey));
+onMounted(() => {
+  document.addEventListener('keydown', onGlobalKey);
+  connectionPingTimer = setInterval(() => {
+    apiClient.get('/health').catch(() => {});
+  }, 15000);
+});
+onUnmounted(() => {
+  document.removeEventListener('keydown', onGlobalKey);
+  if (connectionPingTimer) clearInterval(connectionPingTimer);
+});
 
 // ── Profile / password modal ───────────────────────────────────────────────
 const showPwModal = ref(false);
@@ -338,6 +357,11 @@ async function changePassword() {
 .pw-alert { padding: 8px 12px; border-radius: 6px; font-size: 12px; }
 .pw-ok    { background: #dcfce7; color: #166534; }
 .pw-error { background: #fee2e2; color: #991b1b; }
+
+/* Connection-lost banner */
+.conn-banner { display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+  margin-bottom: 16px; background: #fee2e2; border: 1.5px solid #ef4444; border-radius: 8px;
+  font-size: 13px; color: #991b1b; position: sticky; top: 0; z-index: 50; }
 
 .pw-identity { display:flex; align-items:center; gap:12px; padding: 4px 0 12px; border-bottom:1px solid #e2e8f0; margin-bottom:12px; }
 .pw-avatar { background: var(--ks-500); color: #fff; border-radius: 50%; width: 36px; height: 36px;
