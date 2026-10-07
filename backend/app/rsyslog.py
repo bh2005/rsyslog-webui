@@ -386,59 +386,169 @@ def _parse_ts(value: object) -> Optional[datetime]:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+# Log-Analyse: pro Datei nur die letzten N Zeilen von hinten lesen (Dateien koennen
+# mehrere GB gross werden -- .read_text() auf der ganzen Datei ist ein OOM-Risiko) und
+# insgesamt hoechstens _REMOTE_SCAN_TOTAL Zeilen parsen.
+_REMOTE_SCAN_PER_FILE = 20000
+_REMOTE_SCAN_TOTAL = 400000
+_VALID_FACILITY = re.compile(r"^[a-z0-9_\-]{1,20}$")
+
+
+def _tail_lines_fast(path: Path, n: int) -> List[str]:
+    """Letzte n nicht-leere Zeilen einer Datei, blockweise von hinten gelesen."""
+    block = 65536
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, 2)
+            pos = fh.tell()
+            data = b""
+            newlines = 0
+            while pos > 0 and newlines <= n:
+                step = min(block, pos)
+                pos -= step
+                fh.seek(pos)
+                chunk = fh.read(step)
+                newlines += chunk.count(b"\n")
+                data = chunk + data
+    except OSError:
+        return []
+    lines = data.split(b"\n")
+    if pos > 0:
+        lines = lines[1:]  # erste Zeile ist evtl. abgeschnitten
+    return [l.decode("utf-8", "replace") for l in lines[-n:] if l.strip()]
+
+
+def _entry_matches(
+    entry: Dict,
+    severities: Optional[set],
+    facilities: Optional[set],
+    program: str,
+    query: str,
+) -> bool:
+    if severities is not None:
+        try:
+            sev = int(entry.get("syslogseverity", entry.get("severity")))
+        except (TypeError, ValueError):
+            return False
+        if sev not in severities:
+            return False
+    if facilities is not None:
+        fac = str(entry.get("syslogfacility_text") or entry.get("facility") or "").lower()
+        if fac not in facilities:
+            return False
+    if program:
+        prog = str(entry.get("programname") or entry.get("program") or "").lower()
+        if program not in prog:
+            return False
+    if query:
+        msg = str(entry.get("msg") or entry.get("message") or entry.get("raw") or "").lower()
+        if query not in msg:
+            return False
+    return True
+
+
 def _read_remote_logs(
     allowed_hosts: Optional[List[str]],
     host_filter: Optional[str],
     limit: int,
     since: Optional[datetime] = None,
     until: Optional[datetime] = None,
-) -> List[Dict]:
-    """Read JSON log entries from /data/syslog/ (both host- and category-based layouts)."""
-    if not SYSLOG_DATA_DIR.exists():
-        return []
+    severities: Optional[set] = None,
+    facilities: Optional[set] = None,
+    program: str = "",
+    query: str = "",
+) -> tuple:
+    """Die neuesten passenden Eintraege ueber alle (erlaubten) Log-Dateien, nach Zeit gemischt.
 
-    log_files: List[Path] = []
-    for log_file in sorted(SYSLOG_DATA_DIR.rglob("*.log"), reverse=True):
+    Alle Filter werden VOR dem Zeilenlimit angewendet. Rueckgabe: (entries, truncated);
+    truncated=True, wenn die Suche wegen der Scan-Grenzen nicht alle Zeilen erfasst hat.
+    """
+    if not SYSLOG_DATA_DIR.exists():
+        return [], False
+
+    filtered = (since is not None or until is not None or severities is not None
+                or facilities is not None or bool(program) or bool(query))
+
+    files: List[tuple] = []  # (mtime, path)
+    for log_file in SYSLOG_DATA_DIR.rglob("*.log"):
         hostname = _hostname_from_path(log_file)
         if allowed_hosts is not None and hostname not in allowed_hosts:
             continue
         if host_filter and hostname != host_filter:
             continue
-        # Skip files not written to since the start of the time range
-        if since is not None:
-            try:
-                if log_file.stat().st_mtime < since.timestamp():
-                    continue
-            except OSError:
-                continue
-        log_files.append(log_file)
-
-    entries: List[Dict] = []
-    for log_file in log_files:
-        if len(entries) >= limit:
-            break
         try:
-            lines = log_file.read_text(encoding="utf-8", errors="replace").splitlines()
-            for line in reversed(lines):
-                if len(entries) >= limit:
-                    break
-                line = line.strip()
-                if not line:
-                    continue
-                entry = _parse_log_line(line, _hostname_from_path(log_file))
-                if since is not None or until is not None:
-                    ts = _parse_ts(entry.get("timereported") or entry.get("timestamp"))
-                    if ts is None:
-                        continue
-                    if since is not None and ts < since:
-                        continue
-                    if until is not None and ts > until:
-                        continue
-                entries.append(entry)
+            mtime = log_file.stat().st_mtime
         except OSError:
             continue
+        # Dateien, die seit Beginn des Zeitraums nicht mehr geschrieben wurden, ueberspringen
+        if since is not None and mtime < since.timestamp():
+            continue
+        files.append((mtime, log_file))
+    files.sort(key=lambda t: t[0], reverse=True)
 
-    return entries[:limit]
+    results: List[tuple] = []  # (ts_epoch, entry)
+    threshold: Optional[float] = None
+    scanned = 0
+    truncated = False
+    since_ts = since.timestamp() if since is not None else None
+    until_ts = until.timestamp() if until is not None else None
+
+    for mtime, log_file in files:
+        # Eine Datei kann keine Eintraege enthalten, die neuer sind als ihr mtime.
+        if threshold is not None and mtime < threshold:
+            break
+        if scanned >= _REMOTE_SCAN_TOTAL:
+            truncated = True
+            break
+        lines = _tail_lines_fast(log_file, _REMOTE_SCAN_PER_FILE)
+        scanned += len(lines)
+        if filtered and len(lines) >= _REMOTE_SCAN_PER_FILE:
+            truncated = True
+        hostname = _hostname_from_path(log_file)
+        matched = 0
+        for line in reversed(lines):
+            entry = _parse_log_line(line.strip(), hostname)
+            ts_dt = _parse_ts(entry.get("timereported") or entry.get("timestamp"))
+            ts = ts_dt.timestamp() if ts_dt else None
+            if since_ts is not None or until_ts is not None:
+                if ts is None:
+                    continue
+                if since_ts is not None and ts < since_ts:
+                    break  # Zeilen sind chronologisch: alles Weitere ist aelter
+                if until_ts is not None and ts > until_ts:
+                    continue
+            if not _entry_matches(entry, severities, facilities, program, query):
+                continue
+            results.append((ts if ts is not None else 0.0, entry))
+            matched += 1
+            if matched >= limit:
+                break
+        results.sort(key=lambda t: t[0], reverse=True)
+        del results[limit:]
+        if len(results) >= limit:
+            threshold = results[-1][0]
+
+    return [e for _, e in results], truncated
+
+
+def _parse_csv_set(value: Optional[str], kind: str) -> Optional[set]:
+    """'3,4' -> {3, 4} (kind='int', 0-7) bzw. {'kern','daemon'} (kind='facility'); leer -> None."""
+    if not value or not value.strip():
+        return None
+    parts = [p.strip().lower() for p in value.split(",") if p.strip()]
+    if not parts:
+        return None
+    if kind == "int":
+        try:
+            nums = {int(p) for p in parts}
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Ungültiger Schweregrad")
+        if any(n < 0 or n > 7 for n in nums):
+            raise HTTPException(status_code=400, detail="Schweregrad muss 0-7 sein")
+        return nums
+    if any(not _VALID_FACILITY.match(p) for p in parts):
+        raise HTTPException(status_code=400, detail="Ungültige Facility")
+    return set(parts)
 
 
 @router.get("/remote-logs")
@@ -447,6 +557,10 @@ async def get_remote_logs(
     host: Optional[str] = Query(None, description="Filter by hostname"),
     since: Optional[str] = Query(None, description="Lower bound (ISO 8601)"),
     until: Optional[str] = Query(None, description="Upper bound (ISO 8601)"),
+    severity: Optional[str] = Query(None, description="Schweregrade 0-7, kommagetrennt"),
+    facility: Optional[str] = Query(None, description="Facilities, kommagetrennt"),
+    program: Optional[str] = Query(None, max_length=100, description="Programmname enthaelt"),
+    q: Optional[str] = Query(None, max_length=200, description="Volltext in der Nachricht"),
     current_user: dict = Depends(get_current_user),
 ):
     since_dt = _parse_ts(since)
@@ -462,8 +576,15 @@ async def get_remote_logs(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Access to host '{host}' not permitted for this user",
         )
-    entries = _read_remote_logs(allowed, host, limit, since_dt, until_dt)
-    return {"entries": entries, "count": len(entries), "allowed_hosts": allowed}
+    entries, truncated = _read_remote_logs(
+        allowed, host, limit, since_dt, until_dt,
+        severities=_parse_csv_set(severity, "int"),
+        facilities=_parse_csv_set(facility, "facility"),
+        program=(program or "").strip().lower(),
+        query=(q or "").strip().lower(),
+    )
+    return {"entries": entries, "count": len(entries), "truncated": truncated,
+            "allowed_hosts": allowed}
 
 
 @router.get("/remote-logs/hosts")

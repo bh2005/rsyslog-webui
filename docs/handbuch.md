@@ -209,14 +209,18 @@ Die Seite **Logs** zeigt die von Remote-Hosts empfangenen Syslog-Einträge (JSON
 | Filter | Beschreibung |
 |---|---|
 | **Host** | Serverseitig gefiltert; nur berechtigte Hosts erscheinen in der Auswahl |
-| **Schweregrad** | `0 emerg` … `7 debug`; zeigt nur Einträge mit genau diesem Schweregrad |
-| **Facility** | `kern`, `user`, `mail`, `daemon`, `auth` … |
+| **Schweregrad** | `0 emerg` … `7 debug`; Mehrfachauswahl möglich |
+| **Facility** | `kern`, `user`, `mail`, `daemon`, `auth` … (Mehrfachauswahl) |
 | **Programm** | Freitext auf dem Programmnamen (z. B. `sshd`) |
 | **Suche** | Volltext in der Nachricht, Treffer werden markiert |
 | **Zeitraum** | *Letzte Stunde*, *6 Stunden*, *24 Stunden*, *7 Tage* oder *Benutzerdefiniert* mit **Von** / **Bis** (Datum und Uhrzeit bis auf die Sekunde, Browser-Lokalzeit) |
 | **Max. Zeilen** | 10–2000, Standard 500 |
 
-**Hinweis zum Zeitraum:** Der Zeitraum wird serverseitig angewendet, bevor das Zeilenlimit greift. Dadurch sind auch ältere Zeiträume erreichbar, wenn neuere Einträge das Limit sonst füllen würden. Einträge ohne lesbaren Zeitstempel werden bei aktivem Zeitraum ausgeblendet. Der Zeitraum wirkt beim Laden; nach einer Änderung wird automatisch neu geladen.
+**Hinweis zu den Filtern:** Alle Filter werden serverseitig angewendet, bevor das Zeilenlimit greift. Dadurch sind auch seltene Treffer und ältere Zeiträume erreichbar, wenn neuere Einträge das Limit sonst füllen würden. Bei *Host: alle* werden die Einträge aller Hosts nach Zeit gemischt. Einträge ohne lesbaren Zeitstempel werden bei aktivem Zeitraum ausgeblendet. Änderungen wirken sofort; Texteingaben (Programm, Suche) werden kurz verzögert angewendet.
+
+**Mehrfachauswahl:** *Schweregrad* und *Facility* erlauben mehrere Werte gleichzeitig (Haken setzen; *Auswahl zurücksetzen* leert die Auswahl).
+
+**„Suche begrenzt“:** Erscheint dieser Hinweis über der Liste, wurden pro Datei nur die neuesten Zeilen durchsucht (bei sehr großen Dateien). Zeitraum oder Host eingrenzen, um gezielt weiter zurückzusuchen.
 
 ---
 
@@ -619,8 +623,12 @@ Empfangene Remote-Syslog-Einträge, neueste zuerst. Es werden nur Hosts geliefer
 | `host` | – | Nur dieser Host (muss für den Benutzer erlaubt sein, sonst `403`) |
 | `since` | – | Untergrenze, ISO 8601 (z. B. `2026-10-07T06:00:00Z`) |
 | `until` | – | Obergrenze, ISO 8601 |
+| `severity` | – | Schweregrade `0`–`7`, kommagetrennt (z. B. `3,4`) |
+| `facility` | – | Facilities, kommagetrennt (z. B. `kern,daemon`) |
+| `program` | – | Programmname enthält (max. 100 Zeichen) |
+| `q` | – | Volltext in der Nachricht (max. 200 Zeichen) |
 
-Ungültiges Zeitformat oder `since` nach `until` liefert `400`. Der Filter arbeitet auf `timereported`; Einträge ohne lesbaren Zeitstempel werden bei gesetztem Zeitraum ausgelassen.
+Ungültiges Zeitformat, ungültige Schweregrade/Facilities oder `since` nach `until` liefert `400`. Alle Filter wirken vor dem Zeilenlimit; die Antwort enthält zusätzlich `truncated` (`true`, wenn wegen sehr großer Dateien nur die neuesten Zeilen je Datei durchsucht wurden). Der Filter arbeitet auf `timereported`; Einträge ohne lesbaren Zeitstempel werden bei gesetztem Zeitraum ausgelassen.
 
 **Response (200):**
 ```json
