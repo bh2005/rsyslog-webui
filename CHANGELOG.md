@@ -3,12 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- Audit log: logins, logouts and failed logins (`auth.login`, `auth.logout`, `auth.login_failed`) with client IP; new `POST /auth/logout`
 - Log analysis: time range filter (presets 1h / 6h / 24h / 7d or custom from/to)
 - Log analysis: multi-select for severity and facility; dark mode colors for the log table
 - `GET /rsyslog/remote-logs` accepts optional `since` / `until` (ISO 8601) plus `severity`, `facility`, `program`, `q`; filtering happens
   server-side so the row limit does not cut off older ranges
 
 ### Fixed
+- Dark mode: table row hover and audit log colors were unreadable (hard-coded light colors)
 - Log analysis: with host "alle" the first file filled the row limit, so filters (e.g. facility `kern`) showed no entries.
   All filters now run server-side before the limit and entries of all hosts are merged by time;
   log files are read from the end instead of fully (large files)

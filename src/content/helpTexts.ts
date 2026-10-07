@@ -229,6 +229,7 @@ export const helpTexts: Record<string, string> = {
   <tr><td>group.*</td><td>Anlegen, Bearbeiten, Löschen</td></tr>
   <tr><td>settings.*</td><td>Hosts, Forwarding, Email, Rotation, Wartung</td></tr>
   <tr><td>anomaly.*</td><td>Anomalie-Alert versendet</td></tr>
+  <tr><td>auth.*</td><td>Anmeldung (<code>auth.login</code>), Abmeldung (<code>auth.logout</code>), fehlgeschlagene Anmeldung (<code>auth.login_failed</code>) – jeweils mit IP-Adresse</td></tr>
 </table>
 <h3>Filter</h3>
 <p>Client-seitig: nach Benutzer, Aktions-Typ, Detail-Text filterbar.</p>

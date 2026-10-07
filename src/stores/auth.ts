@@ -58,6 +58,14 @@ export const useAuthStore = defineStore('auth', {
         this.logout();
       }
     },
+    // Manuelles Abmelden: Backend informieren (Audit-Log), dann lokal aufräumen.
+    // Läuft die Anfrage ins Leere (Token abgelaufen, Backend offline), wird trotzdem abgemeldet.
+    async signOut() {
+      try {
+        if (this.token) await apiClient.post('/auth/logout', null, { timeout: 3000 });
+      } catch { /* ignorieren */ }
+      this.logout();
+    },
     logout() {
       this.token = null;
       this.user = null;

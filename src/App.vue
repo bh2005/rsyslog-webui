@@ -235,8 +235,8 @@ const isAdmin = computed(() => auth.isAdmin);
 // wenn das Backend wieder erreichbar ist — nicht nur bei Interaktion.
 let connectionPingTimer: ReturnType<typeof setInterval> | null = null;
 
-function logout() {
-  auth.logout();
+async function logout() {
+  await auth.signOut();
   router.push({ name: 'Login' });
 }
 
