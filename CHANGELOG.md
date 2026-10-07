@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Log analysis: time range filter (presets 1h / 6h / 24h / 7d or custom from/to)
+- `GET /rsyslog/remote-logs` accepts optional `since` / `until` (ISO 8601); filtering happens
+  server-side so the row limit does not cut off older ranges
+
+### Changed
+- Receiver: sender hosts without any log file show "keine Logs empfangen" instead of an empty cell
+- Help panel: corrected log analysis limits (10-2000), added time range, new help page for the receiver view
+- Manual: log analysis (remote syslog) section and `remote-logs` API entry
+
 ## [0.1.0] - 2026-05-18
 
 ### Added

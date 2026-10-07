@@ -6,7 +6,7 @@ import shutil
 import smtplib
 import subprocess
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Dict, List, Optional, Union
@@ -375,10 +375,23 @@ def _parse_log_line(line: str, hostname_fallback: str) -> Dict:
     return entry
 
 
+def _parse_ts(value: object) -> Optional[datetime]:
+    """Parse an RFC3339/ISO timestamp to an aware datetime (naive => UTC); None if unparseable."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
 def _read_remote_logs(
     allowed_hosts: Optional[List[str]],
     host_filter: Optional[str],
     limit: int,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
 ) -> List[Dict]:
     """Read JSON log entries from /data/syslog/ (both host- and category-based layouts)."""
     if not SYSLOG_DATA_DIR.exists():
@@ -391,6 +404,13 @@ def _read_remote_logs(
             continue
         if host_filter and hostname != host_filter:
             continue
+        # Skip files not written to since the start of the time range
+        if since is not None:
+            try:
+                if log_file.stat().st_mtime < since.timestamp():
+                    continue
+            except OSError:
+                continue
         log_files.append(log_file)
 
     entries: List[Dict] = []
@@ -405,7 +425,16 @@ def _read_remote_logs(
                 line = line.strip()
                 if not line:
                     continue
-                entries.append(_parse_log_line(line, _hostname_from_path(log_file)))
+                entry = _parse_log_line(line, _hostname_from_path(log_file))
+                if since is not None or until is not None:
+                    ts = _parse_ts(entry.get("timereported") or entry.get("timestamp"))
+                    if ts is None:
+                        continue
+                    if since is not None and ts < since:
+                        continue
+                    if until is not None and ts > until:
+                        continue
+                entries.append(entry)
         except OSError:
             continue
 
@@ -416,8 +445,16 @@ def _read_remote_logs(
 async def get_remote_logs(
     limit: int = Query(200, ge=10, le=2000),
     host: Optional[str] = Query(None, description="Filter by hostname"),
+    since: Optional[str] = Query(None, description="Lower bound (ISO 8601)"),
+    until: Optional[str] = Query(None, description="Upper bound (ISO 8601)"),
     current_user: dict = Depends(get_current_user),
 ):
+    since_dt = _parse_ts(since)
+    until_dt = _parse_ts(until)
+    if (since and since_dt is None) or (until and until_dt is None):
+        raise HTTPException(status_code=400, detail="Invalid time format (ISO 8601 expected)")
+    if since_dt and until_dt and since_dt > until_dt:
+        raise HTTPException(status_code=400, detail="'since' is after 'until'")
     allowed = _user_allowed_hosts(current_user["username"])
     # Validate requested host against allowed hosts
     if host and allowed is not None and host not in allowed:
@@ -425,7 +462,7 @@ async def get_remote_logs(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Access to host '{host}' not permitted for this user",
         )
-    entries = _read_remote_logs(allowed, host, limit)
+    entries = _read_remote_logs(allowed, host, limit, since_dt, until_dt)
     return {"entries": entries, "count": len(entries), "allowed_hosts": allowed}
 
 

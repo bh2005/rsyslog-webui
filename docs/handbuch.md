@@ -202,6 +202,22 @@ Die Ausgabe entspricht dem `journalctl`-Standardformat:
 Mai 18 10:23:45 hostname rsyslogd[1234]: message text
 ```
 
+### Log-Analyse (Remote-Syslog-Einträge)
+
+Die Seite **Logs** zeigt die von Remote-Hosts empfangenen Syslog-Einträge (JSON-Lines unter `/data/syslog/`) und lässt sich filtern:
+
+| Filter | Beschreibung |
+|---|---|
+| **Host** | Serverseitig gefiltert; nur berechtigte Hosts erscheinen in der Auswahl |
+| **Schweregrad** | `0 emerg` … `7 debug`; zeigt nur Einträge mit genau diesem Schweregrad |
+| **Facility** | `kern`, `user`, `mail`, `daemon`, `auth` … |
+| **Programm** | Freitext auf dem Programmnamen (z. B. `sshd`) |
+| **Suche** | Volltext in der Nachricht, Treffer werden markiert |
+| **Zeitraum** | *Letzte Stunde*, *6 Stunden*, *24 Stunden*, *7 Tage* oder *Benutzerdefiniert* mit **Von** / **Bis** (Datum und Uhrzeit bis auf die Sekunde, Browser-Lokalzeit) |
+| **Max. Zeilen** | 10–2000, Standard 500 |
+
+**Hinweis zum Zeitraum:** Der Zeitraum wird serverseitig angewendet, bevor das Zeilenlimit greift. Dadurch sind auch ältere Zeiträume erreichbar, wenn neuere Einträge das Limit sonst füllen würden. Einträge ohne lesbaren Zeitstempel werden bei aktivem Zeitraum ausgeblendet. Der Zeitraum wirkt beim Laden; nach einer Änderung wird automatisch neu geladen.
+
 ---
 
 ## 6. Benutzerkonten
@@ -587,6 +603,28 @@ Aktuelle Journal-Logs des rsyslog-Dienstes.
 {
   "logs": "Mai 18 10:23:45 srv01 rsyslogd[1234]: [origin ...]\nMai 18 10:23:46 ..."
 }
+```
+
+---
+
+#### `GET /api/rsyslog/remote-logs`
+
+Empfangene Remote-Syslog-Einträge, neueste zuerst. Es werden nur Hosts geliefert, für die der Benutzer berechtigt ist.
+
+**Query-Parameter:**
+
+| Parameter | Standard | Beschreibung |
+|---|---|---|
+| `limit` | `200` | Maximale Anzahl Einträge (10–2000) |
+| `host` | – | Nur dieser Host (muss für den Benutzer erlaubt sein, sonst `403`) |
+| `since` | – | Untergrenze, ISO 8601 (z. B. `2026-10-07T06:00:00Z`) |
+| `until` | – | Obergrenze, ISO 8601 |
+
+Ungültiges Zeitformat oder `since` nach `until` liefert `400`. Der Filter arbeitet auf `timereported`; Einträge ohne lesbaren Zeitstempel werden bei gesetztem Zeitraum ausgelassen.
+
+**Response (200):**
+```json
+{ "entries": [ { "timereported": "2026-10-07T08:26:49+02:00", "hostname": "srv01", "programname": "sshd", "msg": "..." } ], "count": 1, "allowed_hosts": null }
 ```
 
 ---
