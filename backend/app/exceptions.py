@@ -13,6 +13,9 @@ def register_exception_handlers(app):
                 "error": "http_error",
                 "status": exc.status_code,
                 "message": exc.detail,
+                # Das Frontend liest data.detail (FastAPI-Standard); ohne dieses Feld zeigten alle
+                # Ansichten nur ihre generische Ersatzmeldung statt der Meldung des Backends.
+                "detail": exc.detail,
                 "details": None,
             },
         )
