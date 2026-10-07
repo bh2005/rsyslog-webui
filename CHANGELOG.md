@@ -14,6 +14,7 @@
   server-side so the row limit does not cut off older ranges
 
 ### Fixed
+- Validation errors from custom validators returned HTTP 500 instead of 422 (non-serializable error context)
 - API errors now also carry `detail` (as the frontend expects). Before, the UI always showed its generic
   fallback (e.g. "Login failed") instead of the backend message (e.g. locked account, invalid regex)
 - Dark mode: table row hover and audit log colors were unreadable (hard-coded light colors)
