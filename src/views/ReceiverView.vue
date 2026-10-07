@@ -110,7 +110,10 @@
         <tbody>
           <tr v-for="h in sortedHeartbeatHosts" :key="h.host">
             <td class="font-mono">{{ h.host }}</td>
-            <td class="text-sm">{{ h.last_seen ? formatDateTime(h.last_seen) : '—' }}</td>
+            <td class="text-sm">
+              <template v-if="h.last_seen">{{ formatDateTime(h.last_seen) }}</template>
+              <span v-else class="text-muted" title="Verzeichnis existiert, es wurde aber noch nie eine Log-Datei geschrieben">keine Logs empfangen</span>
+            </td>
             <td>
               <span :class="['badge', heartbeatBadgeClass(h.status)]">{{ h.status }}</span>
             </td>

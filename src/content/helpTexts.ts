@@ -77,8 +77,10 @@ export const helpTexts: Record<string, string> = {
   <li><b>Facility</b> – kern, user, mail, daemon, auth …</li>
   <li><b>Programm</b> – Freitext-Filter auf programname</li>
   <li><b>Suche</b> – Volltext in msg-Feld, Treffer werden <mark>gelb markiert</mark></li>
-  <li><b>Limit</b> – Maximale Anzahl Einträge (100–5000)</li>
+  <li><b>Zeitraum</b> – Letzte Stunde / 6 Stunden / 24 Stunden / 7 Tage oder <i>Benutzerdefiniert</i> mit <b>Von</b> / <b>Bis</b> (Browser-Lokalzeit)</li>
+  <li><b>Max. Zeilen</b> – Maximale Anzahl Einträge (10–2000, Standard 500)</li>
 </ul>
+<p>Der Zeitraum wird serverseitig angewendet. Das Zeilenlimit gilt erst danach, ältere Zeiträume sind also auch bei vielen neueren Einträgen erreichbar. Einträge ohne lesbaren Zeitstempel werden bei aktivem Zeitraum ausgeblendet.</p>
 <h3>Farb-Kodierung</h3>
 <table>
   <tr><th>Farbe</th><th>Severity</th></tr>
@@ -88,7 +90,28 @@ export const helpTexts: Record<string, string> = {
   <tr><td>Weiß</td><td>notice, info, debug</td></tr>
 </table>
 <hr>
-<p class="help-tip">💡 Nur Hosts sichtbar, für die Du berechtigt bist. Admins sehen alle.</p>
+<p class="help-tip">💡 Nur Hosts sichtbar, für die Du berechtigt bist. Admins sehen alle. Für ein bestimmtes Ereignis den Zeitraum eingrenzen statt das Limit zu erhöhen.</p>
+`,
+
+  '/receiver': `
+<h2>Receiver</h2>
+<p>Empfänger-Status und Sender-Hosts des Syslog-Servers <i>(nur Admin)</i>.</p>
+<h3>Sender-Hosts</h3>
+<p>Zeigt pro Host, wann zuletzt eine Log-Datei geschrieben wurde.</p>
+<table>
+  <tr><th>Status</th><th>Bedeutung</th></tr>
+  <tr><td>ok</td><td>Logs in den letzten 15 Minuten</td></tr>
+  <tr><td>warn</td><td>Letzte Logs älter als 15 Minuten</td></tr>
+  <tr><td>crit</td><td>Letzte Logs älter als 1 Stunde</td></tr>
+  <tr><td>unknown</td><td>Verzeichnis vorhanden, aber noch nie eine Log-Datei geschrieben („keine Logs empfangen“)</td></tr>
+</table>
+<p><b>Bei „unknown“:</b> Der Server hat von diesem Host noch nie etwas empfangen. Prüfen: Syslog-Ziel am Gerät (Server-IP, Port 514), Firewall dazwischen, IP in der passenden Lookup-Tabelle. Live-Check auf dem Server: <code>tcpdump -nn -i any port 514 and host &lt;IP&gt;</code>.</p>
+<h3>Lookup-Tabellen</h3>
+<p>Ordnen Absender-IPs einem Hostnamen oder einer Gerätegruppe zu. Änderungen speichern und rsyslog neu laden (Button <b>Speichern + rsyslog reload</b>).</p>
+<h3>Log-Verzeichnisse</h3>
+<p><b>Verzeichnis anlegen</b> erzeugt <code>/data/syslog/&lt;host&gt;/</code> mit den richtigen Rechten. Nur sinnvoll für Hosts, die ein eigenes Verzeichnis erhalten sollen.</p>
+<hr>
+<p class="help-tip">💡 Ein Host mit „unknown“ ist kein Fehler der Anzeige, sondern heißt: Es kommen keine Logs an.</p>
 `,
 
   '/logfiles': `

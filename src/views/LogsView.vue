@@ -89,6 +89,29 @@
           />
         </div>
 
+        <!-- Time range -->
+        <div class="filter-group">
+          <label class="filter-label">Zeitraum</label>
+          <select class="select-inline" v-model="timePreset" @change="onPresetChange">
+            <option value="">— alle —</option>
+            <option value="1h">Letzte Stunde</option>
+            <option value="6h">Letzte 6 Stunden</option>
+            <option value="24h">Letzte 24 Stunden</option>
+            <option value="7d">Letzte 7 Tage</option>
+            <option value="custom">Benutzerdefiniert …</option>
+          </select>
+        </div>
+        <template v-if="timePreset === 'custom'">
+          <div class="filter-group">
+            <label class="filter-label">Von</label>
+            <input type="datetime-local" step="1" class="input input-sm" v-model="timeFrom" @change="loadLogs" />
+          </div>
+          <div class="filter-group">
+            <label class="filter-label">Bis</label>
+            <input type="datetime-local" step="1" class="input input-sm" v-model="timeTo" @change="loadLogs" />
+          </div>
+        </template>
+
         <!-- Limit -->
         <div class="filter-group" style="min-width:80px;">
           <label class="filter-label">Max. Zeilen</label>
@@ -148,7 +171,7 @@
         <div v-else-if="loading" class="log-empty">Lade …</div>
         <div v-else class="log-empty text-muted">
           Keine Einträge gefunden.
-          <span v-if="searchText || filterSeverity || filterFacility || filterProgram">
+          <span v-if="searchText || filterSeverity || filterFacility || filterProgram || timePreset">
             Filter zurücksetzen um alle anzuzeigen.
           </span>
         </div>
@@ -175,6 +198,9 @@ const filterFacility = ref('');
 const filterProgram  = ref('');
 const searchText     = ref('');
 const limitVal       = ref(500);
+const timePreset     = ref('');
+const timeFrom       = ref('');
+const timeTo         = ref('');
 
 const totalLoaded = computed(() => allEntries.value.length);
 
@@ -221,12 +247,35 @@ async function loadHosts() {
   } catch { /* ignore */ }
 }
 
+const PRESET_MS: Record<string, number> = {
+  '1h': 3_600_000, '6h': 6 * 3_600_000, '24h': 24 * 3_600_000, '7d': 7 * 24 * 3_600_000,
+};
+
+function onPresetChange() {
+  loadLogs();
+}
+
+// datetime-local (browser local time) -> ISO/UTC
+function localToIso(v: string): string | undefined {
+  if (!v) return undefined;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
 async function loadLogs() {
   loading.value = true;
   try {
     await auth.initialize();
     const params: Record<string, unknown> = { limit: limitVal.value };
     if (filterHost.value) params.host = filterHost.value;
+    if (timePreset.value === 'custom') {
+      const since = localToIso(timeFrom.value);
+      const until = localToIso(timeTo.value);
+      if (since) params.since = since;
+      if (until) params.until = until;
+    } else if (PRESET_MS[timePreset.value]) {
+      params.since = new Date(Date.now() - PRESET_MS[timePreset.value]).toISOString();
+    }
     const res = await apiClient.get('/rsyslog/remote-logs', { params });
     allEntries.value = res.data.entries ?? [];
   } catch {
