@@ -12,6 +12,8 @@
   server-side so the row limit does not cut off older ranges
 
 ### Fixed
+- API errors now also carry `detail` (as the frontend expects). Before, the UI always showed its generic
+  fallback (e.g. "Login failed") instead of the backend message (e.g. locked account, invalid regex)
 - Dark mode: table row hover and audit log colors were unreadable (hard-coded light colors)
 - Log analysis: with host "alle" the first file filled the row limit, so filters (e.g. facility `kern`) showed no entries.
   All filters now run server-side before the limit and entries of all hosts are merged by time;
