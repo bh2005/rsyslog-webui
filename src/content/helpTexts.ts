@@ -76,12 +76,13 @@ export const helpTexts: Record<string, string> = {
   <li><b>Severity</b> – 0 Emerg bis 7 Debug (Mehrfachauswahl)</li>
   <li><b>Facility</b> – kern, user, mail, daemon, auth … (Mehrfachauswahl)</li>
   <li><b>Programm</b> – Freitext-Filter auf programname</li>
-  <li><b>Suche</b> – Volltext in msg-Feld, Treffer werden <mark>gelb markiert</mark></li>
+  <li><b>Suche</b> – Volltext in msg-Feld, Treffer werden <mark>gelb markiert</mark>. Mit der Option <b>Regex</b> wird der Text als regulärer Ausdruck ausgewertet (Groß-/Kleinschreibung egal), z. B. <code>timeout|refused</code> oder <code>Failed password for (invalid user )?\w+</code></li>
   <li><b>Zeitraum</b> – Letzte Stunde / 6 Stunden / 24 Stunden / 7 Tage oder <i>Benutzerdefiniert</i> mit <b>Von</b> / <b>Bis</b> (Browser-Lokalzeit)</li>
   <li><b>Max. Zeilen</b> – Maximale Anzahl Einträge (10–2000, Standard 500)</li>
 </ul>
 <p><b>Schweregrad</b> und <b>Facility</b> erlauben Mehrfachauswahl (Haken setzen, „Auswahl zurücksetzen“ leert sie).</p>
 <p>Alle Filter werden serverseitig angewendet, <i>bevor</i> das Zeilenlimit greift. Treffer sind also auch dann sichtbar, wenn andere Hosts neuere Einträge schreiben. Bei „Host: alle“ werden die Einträge aller Hosts nach Zeit gemischt. Einträge ohne lesbaren Zeitstempel werden bei aktivem Zeitraum ausgeblendet.</p>
+<p><b>Regex:</b> Ein fehlerhafter Ausdruck wird mit einer Meldung abgelehnt. Sehr aufwendige Ausdrücke (z. B. verschachtelte Wiederholungen wie <code>(a|aa)+$</code>) werden aus Sicherheitsgründen nach kurzer Zeit abgebrochen und ebenfalls abgelehnt. Es wird nur die Nachricht durchsucht (die ersten 4000 Zeichen).</p>
 <p>Erscheint „Suche begrenzt“ über der Liste, wurden pro Datei nur die neuesten Zeilen durchsucht (bei sehr großen Dateien). Dann Zeitraum oder Host eingrenzen.</p>
 <h3>Farb-Kodierung</h3>
 <table>

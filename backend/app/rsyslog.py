@@ -2,6 +2,8 @@ import difflib
 import io
 import json
 import re
+
+import regex as _regex  # Regex-Suche mit Zeitlimit (stdlib-re kann per Backtracking den ganzen Prozess blockieren)
 import shutil
 import smtplib
 import subprocess
@@ -392,6 +394,12 @@ def _parse_ts(value: object) -> Optional[datetime]:
 _REMOTE_SCAN_PER_FILE = 20000
 _REMOTE_SCAN_TOTAL = 400000
 _VALID_FACILITY = re.compile(r"^[a-z0-9_\-]{1,20}$")
+_REGEX_TIMEOUT_S = 0.05    # pro Zeile; langsamere Muster werden abgelehnt
+_REGEX_MAX_MSG = 4000      # laengere Nachrichten werden nur bis hierhin durchsucht
+
+
+class _RegexTooComplex(Exception):
+    """Das Suchmuster war auf einer Zeile langsamer als _REGEX_TIMEOUT_S."""
 
 
 def _tail_lines_fast(path: Path, n: int) -> List[str]:
@@ -424,6 +432,7 @@ def _entry_matches(
     facilities: Optional[set],
     program: str,
     query: str,
+    rx=None,
 ) -> bool:
     if severities is not None:
         try:
@@ -440,6 +449,13 @@ def _entry_matches(
         prog = str(entry.get("programname") or entry.get("program") or "").lower()
         if program not in prog:
             return False
+    if rx is not None:
+        msg = str(entry.get("msg") or entry.get("message") or entry.get("raw") or "")[:_REGEX_MAX_MSG]
+        try:
+            if rx.search(msg, timeout=_REGEX_TIMEOUT_S) is None:
+                return False
+        except TimeoutError:
+            raise _RegexTooComplex()
     if query:
         msg = str(entry.get("msg") or entry.get("message") or entry.get("raw") or "").lower()
         if query not in msg:
@@ -457,6 +473,7 @@ def _read_remote_logs(
     facilities: Optional[set] = None,
     program: str = "",
     query: str = "",
+    rx=None,
 ) -> tuple:
     """Die neuesten passenden Eintraege ueber alle (erlaubten) Log-Dateien, nach Zeit gemischt.
 
@@ -467,7 +484,7 @@ def _read_remote_logs(
         return [], False
 
     filtered = (since is not None or until is not None or severities is not None
-                or facilities is not None or bool(program) or bool(query))
+                or facilities is not None or bool(program) or bool(query) or rx is not None)
 
     files: List[tuple] = []  # (mtime, path)
     for log_file in SYSLOG_DATA_DIR.rglob("*.log"):
@@ -517,7 +534,7 @@ def _read_remote_logs(
                     break  # Zeilen sind chronologisch: alles Weitere ist aelter
                 if until_ts is not None and ts > until_ts:
                     continue
-            if not _entry_matches(entry, severities, facilities, program, query):
+            if not _entry_matches(entry, severities, facilities, program, query, rx):
                 continue
             results.append((ts if ts is not None else 0.0, entry))
             matched += 1
@@ -561,6 +578,7 @@ async def get_remote_logs(
     facility: Optional[str] = Query(None, description="Facilities, kommagetrennt"),
     program: Optional[str] = Query(None, max_length=100, description="Programmname enthaelt"),
     q: Optional[str] = Query(None, max_length=200, description="Volltext in der Nachricht"),
+    regex: bool = Query(False, description="q als regulaeren Ausdruck auswerten (Gross-/Kleinschreibung egal)"),
     current_user: dict = Depends(get_current_user),
 ):
     since_dt = _parse_ts(since)
@@ -576,13 +594,27 @@ async def get_remote_logs(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Access to host '{host}' not permitted for this user",
         )
-    entries, truncated = _read_remote_logs(
-        allowed, host, limit, since_dt, until_dt,
-        severities=_parse_csv_set(severity, "int"),
-        facilities=_parse_csv_set(facility, "facility"),
-        program=(program or "").strip().lower(),
-        query=(q or "").strip().lower(),
-    )
+    q_clean = (q or "").strip()
+    rx = None
+    if regex and q_clean:
+        try:
+            rx = _regex.compile(q_clean, _regex.IGNORECASE)
+        except _regex.error as exc:
+            raise HTTPException(status_code=400, detail=f"Ungültiger regulärer Ausdruck: {exc}")
+    try:
+        entries, truncated = _read_remote_logs(
+            allowed, host, limit, since_dt, until_dt,
+            severities=_parse_csv_set(severity, "int"),
+            facilities=_parse_csv_set(facility, "facility"),
+            program=(program or "").strip().lower(),
+            query="" if rx is not None else q_clean.lower(),
+            rx=rx,
+        )
+    except _RegexTooComplex:
+        raise HTTPException(
+            status_code=400,
+            detail="Der reguläre Ausdruck ist zu komplex (Auswertung zu langsam). Bitte vereinfachen, z. B. verschachtelte Wiederholungen vermeiden.",
+        )
     return {"entries": entries, "count": len(entries), "truncated": truncated,
             "allowed_hosts": allowed}
 

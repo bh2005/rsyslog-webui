@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- Log analysis: optional regex search (`regex=true`); evaluated with the `regex` package and a per-line
+  timeout so a pathological pattern cannot block the API; invalid/too complex patterns return `400`
 - Audit log: logins, logouts and failed logins (`auth.login`, `auth.logout`, `auth.login_failed`) with client IP; new `POST /auth/logout`
 - Log analysis: time range filter (presets 1h / 6h / 24h / 7d or custom from/to)
 - Log analysis: multi-select for severity and facility; dark mode colors for the log table

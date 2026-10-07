@@ -212,7 +212,7 @@ Die Seite **Logs** zeigt die von Remote-Hosts empfangenen Syslog-Einträge (JSON
 | **Schweregrad** | `0 emerg` … `7 debug`; Mehrfachauswahl möglich |
 | **Facility** | `kern`, `user`, `mail`, `daemon`, `auth` … (Mehrfachauswahl) |
 | **Programm** | Freitext auf dem Programmnamen (z. B. `sshd`) |
-| **Suche** | Volltext in der Nachricht, Treffer werden markiert |
+| **Suche** | Volltext in der Nachricht, Treffer werden markiert. Option **Regex**: Suchtext als regulärer Ausdruck (Groß-/Kleinschreibung egal), z. B. `timeout\|refused` |
 | **Zeitraum** | *Letzte Stunde*, *6 Stunden*, *24 Stunden*, *7 Tage* oder *Benutzerdefiniert* mit **Von** / **Bis** (Datum und Uhrzeit bis auf die Sekunde, Browser-Lokalzeit) |
 | **Max. Zeilen** | 10–2000, Standard 500 |
 
@@ -627,8 +627,9 @@ Empfangene Remote-Syslog-Einträge, neueste zuerst. Es werden nur Hosts geliefer
 | `facility` | – | Facilities, kommagetrennt (z. B. `kern,daemon`) |
 | `program` | – | Programmname enthält (max. 100 Zeichen) |
 | `q` | – | Volltext in der Nachricht (max. 200 Zeichen) |
+| `regex` | `false` | `true`: `q` wird als regulärer Ausdruck ausgewertet (Groß-/Kleinschreibung egal) |
 
-Ungültiges Zeitformat, ungültige Schweregrade/Facilities oder `since` nach `until` liefert `400`. Alle Filter wirken vor dem Zeilenlimit; die Antwort enthält zusätzlich `truncated` (`true`, wenn wegen sehr großer Dateien nur die neuesten Zeilen je Datei durchsucht wurden). Der Filter arbeitet auf `timereported`; Einträge ohne lesbaren Zeitstempel werden bei gesetztem Zeitraum ausgelassen.
+Ungültiges Zeitformat, ungültige Schweregrade/Facilities, ein fehlerhafter oder zu aufwendiger regulärer Ausdruck (Abbruch nach 50 ms pro Zeile) oder `since` nach `until` liefert `400`. Alle Filter wirken vor dem Zeilenlimit; die Antwort enthält zusätzlich `truncated` (`true`, wenn wegen sehr großer Dateien nur die neuesten Zeilen je Datei durchsucht wurden). Der Filter arbeitet auf `timereported`; Einträge ohne lesbaren Zeitstempel werden bei gesetztem Zeitraum ausgelassen.
 
 **Response (200):**
 ```json
