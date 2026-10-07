@@ -222,6 +222,8 @@ Die Seite **Logs** zeigt die von Remote-Hosts empfangenen Syslog-Einträge (JSON
 
 **„Suche begrenzt“:** Erscheint dieser Hinweis über der Liste, wurden pro Datei nur die neuesten Zeilen durchsucht (bei sehr großen Dateien). Zeitraum oder Host eingrenzen, um gezielt weiter zurückzusuchen.
 
+**Gespeicherte Filter:** Mit *Aktuellen Filter speichern* wird die aktuelle Filterkombination (Host, Schweregrad, Facility, Programm, Suche inkl. Regex, Zeitraum, Max. Zeilen) unter einem Namen gespeichert, bis zu **5 pro Benutzer**. Die Filter liegen serverseitig und stehen in jedem Browser zur Verfügung; jeder Benutzer sieht nur seine eigenen. Die Auswahl im Dropdown *Gespeicherte Filter* lädt den Filter sofort, ein vorhandener Name wird überschrieben. Für den ausgewählten Filter überschreibt *Aktualisieren* ihn mit den aktuellen Filtereinstellungen (Name bleibt), *Umbenennen* ändert nur den Namen und *Löschen* entfernt ihn. *Zurücksetzen* leert alle Filterfelder (gespeicherte Filter bleiben). Relative Zeiträume (z. B. *Letzte Stunde*) bleiben relativ zu „jetzt“, ein benutzerdefinierter Zeitraum wird mit festen Zeitpunkten gespeichert.
+
 ---
 
 ## 6. Benutzerkonten
@@ -635,6 +637,17 @@ Ungültiges Zeitformat, ungültige Schweregrade/Facilities, ein fehlerhafter ode
 ```json
 { "entries": [ { "timereported": "2026-10-07T08:26:49+02:00", "hostname": "srv01", "programname": "sshd", "msg": "..." } ], "count": 1, "allowed_hosts": null }
 ```
+
+---
+
+#### `GET /api/users/me/filters` · `PUT /api/users/me/filters` · `PATCH` · `DELETE /api/users/me/filters/{id}`
+
+Gespeicherte Log-Analyse-Filter des angemeldeten Benutzers (maximal 5).
+
+- `GET` liefert `{ "filters": [ { "id", "name", "filter": { … } } ], "max": 5 }`.
+- `PUT` mit `{ "name": "…", "filter": { host, severity[], facility[], program, q, regex, time_preset, time_from, time_to, limit } }` speichert den Filter. Existiert der Name bereits (Groß-/Kleinschreibung egal), wird er überschrieben; sind schon 5 Filter vorhanden, liefert ein neuer Name `409`. Ungültige Werte liefern `422`.
+- `PATCH /api/users/me/filters/{id}` mit `{ "name": "…" }` und/oder `{ "filter": { … } }` benennt den Filter um bzw. überschreibt seine Einstellungen (nicht gesetzte Felder bleiben). Ein bereits vergebener Name liefert `409`, ein unbekannter `id` `404`.
+- `DELETE` entfernt den Filter mit der angegebenen `id` (`404`, wenn nicht vorhanden).
 
 ---
 
