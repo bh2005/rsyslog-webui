@@ -1,4 +1,5 @@
 from fastapi import Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -28,7 +29,14 @@ def register_exception_handlers(app):
                 "error": "validation_error",
                 "status": 422,
                 "message": "Validation failed",
-                "details": exc.errors(),
+                # Lesbare Kurzfassung fuer das Frontend (liest data.detail als String)
+                "detail": "Ungültige Eingabe: " + "; ".join(
+                    f"{'.'.join(str(p) for p in e.get('loc', []) if p != 'body')}: {e.get('msg', '')}"
+                    for e in exc.errors()[:3]
+                ),
+                # jsonable_encoder: Fehler aus eigenen Validatoren enthalten das ValueError-Objekt im
+                # ctx, das json.dumps sonst nicht serialisieren kann (-> 500 statt 422).
+                "details": jsonable_encoder(exc.errors()),
             },
         )
 

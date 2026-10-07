@@ -111,6 +111,7 @@ def _save_all(data: Dict[str, List[dict]]) -> None:
     SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
     tmp = FILTERS_JSON.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.chmod(0o600)  # enthält Filter aller Benutzer: nur der Service-User soll lesen
     os.replace(tmp, FILTERS_JSON)  # atomar: ein Absturz mitten im Schreiben lässt keine halbe Datei zurück
 
 
