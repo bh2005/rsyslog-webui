@@ -84,6 +84,10 @@ export const helpTexts: Record<string, string> = {
 <p>Alle Filter werden serverseitig angewendet, <i>bevor</i> das Zeilenlimit greift. Treffer sind also auch dann sichtbar, wenn andere Hosts neuere Einträge schreiben. Bei „Host: alle“ werden die Einträge aller Hosts nach Zeit gemischt. Einträge ohne lesbaren Zeitstempel werden bei aktivem Zeitraum ausgeblendet.</p>
 <p><b>Regex:</b> Ein fehlerhafter Ausdruck wird mit einer Meldung abgelehnt. Sehr aufwendige Ausdrücke (z. B. verschachtelte Wiederholungen wie <code>(a|aa)+$</code>) werden aus Sicherheitsgründen nach kurzer Zeit abgebrochen und ebenfalls abgelehnt. Es wird nur die Nachricht durchsucht (die ersten 4000 Zeichen).</p>
 <p>Erscheint „Suche begrenzt“ über der Liste, wurden pro Datei nur die neuesten Zeilen durchsucht (bei sehr großen Dateien). Dann Zeitraum oder Host eingrenzen.</p>
+<h3>Gespeicherte Filter</h3>
+<p><b>Aktuellen Filter speichern</b> legt die aktuelle Filterkombination (Host, Schweregrad, Facility, Programm, Suche inkl. Regex, Zeitraum, Max. Zeilen) unter einem Namen ab – bis zu <b>5 pro Benutzer</b>. Die Filter liegen auf dem Server und stehen in jedem Browser zur Verfügung; jeder sieht nur seine eigenen. Die Auswahl im Dropdown lädt den Filter sofort. Ein bereits vorhandener Name wird überschrieben.</p>
+<p>Für den ausgewählten Filter: <b>Aktualisieren</b> überschreibt ihn mit den aktuellen Filtereinstellungen (Name bleibt), <b>Umbenennen</b> ändert nur den Namen, <b>Löschen</b> entfernt ihn. <b>Zurücksetzen</b> leert alle Filterfelder (gespeicherte Filter bleiben).</p>
+<p>Relative Zeiträume („Letzte Stunde“ usw.) bleiben beim Laden relativ zu jetzt; ein benutzerdefinierter Zeitraum (Von/Bis) wird mit festen Zeitpunkten gespeichert.</p>
 <h3>Farb-Kodierung</h3>
 <table>
   <tr><th>Farbe</th><th>Severity</th></tr>

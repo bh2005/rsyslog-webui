@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- Log analysis: save, update, rename, delete and reload up to 5 filters per user (stored server-side in
+  `saved_filters.json`; `GET/PUT /users/me/filters`, `PATCH/DELETE /users/me/filters/{id}`)
 - Log analysis: optional regex search (`regex=true`); evaluated with the `regex` package and a per-line
   timeout so a pathological pattern cannot block the API; invalid/too complex patterns return `400`
 - Audit log: logins, logouts and failed logins (`auth.login`, `auth.logout`, `auth.login_failed`) with client IP; new `POST /auth/logout`

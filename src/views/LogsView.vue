@@ -14,6 +14,34 @@
 
     <!-- Filter bar -->
     <div class="card mb-4 filter-bar">
+      <!-- Gespeicherte Filter (pro Benutzer, serverseitig) -->
+      <div class="saved-row">
+        <span class="filter-label">Gespeicherte Filter</span>
+        <select class="select-inline" v-model="selectedFilterId" @change="onSelectSaved" style="min-width:160px;">
+          <option value="">— {{ savedFilters.length ? 'wählen' : 'keine gespeichert' }} —</option>
+          <option v-for="f in savedFilters" :key="f.id" :value="f.id">{{ f.name }}</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" @click="startSave" title="Aktuelle Filterkombination unter einem Namen speichern">Aktuellen Filter speichern</button>
+        <button class="btn btn-ghost btn-sm" @click="updateSelected" :disabled="!selectedFilterId"
+                title="Den ausgewählten gespeicherten Filter mit den aktuellen Filtereinstellungen überschreiben">Aktualisieren</button>
+        <button class="btn btn-ghost btn-sm" @click="startRename" :disabled="!selectedFilterId">Umbenennen</button>
+        <button class="btn btn-ghost btn-sm" @click="deleteSelected" :disabled="!selectedFilterId">Löschen</button>
+        <button class="btn btn-ghost btn-sm" @click="resetFilters" title="Alle Filterfelder zurücksetzen">Zurücksetzen</button>
+        <span class="text-muted text-sm">{{ savedFilters.length }}/{{ maxSavedFilters }}</span>
+        <template v-if="showSave">
+          <input class="input input-sm" v-model="saveName" maxlength="40"
+                 :placeholder="saveMode === 'rename' ? 'Neuer Name' : 'Name des Filters'"
+                 style="width:200px;" @keyup.enter="confirmSave" @keyup.esc="showSave = false" />
+          <button class="btn btn-primary btn-sm" @click="confirmSave"
+                  :disabled="!saveName.trim() || nameTaken || (saveMode === 'new' && limitReached && !nameExists)">
+            {{ saveMode === 'rename' ? 'Umbenennen' : 'Speichern' }}
+          </button>
+          <button class="btn btn-ghost btn-sm" @click="showSave = false">Abbrechen</button>
+          <span v-if="nameTaken" class="trunc-note">Name bereits vergeben</span>
+          <span v-else-if="saveMode === 'new' && nameExists" class="text-muted text-sm">überschreibt den vorhandenen Filter</span>
+          <span v-else-if="saveMode === 'new' && limitReached" class="trunc-note">Limit erreicht – einen Filter löschen oder einen vorhandenen Namen verwenden</span>
+        </template>
+      </div>
       <div class="filter-row">
         <!-- Host filter -->
         <div class="filter-group">
@@ -105,6 +133,7 @@
     </div>
 
     <div v-if="errorMsg" class="alert alert-error" style="margin-bottom:16px;">{{ errorMsg }}</div>
+    <div v-if="infoMsg" class="alert alert-success" style="margin-bottom:16px;">{{ infoMsg }}</div>
 
     <!-- Log table -->
     <div class="card">
@@ -345,8 +374,159 @@ function escHtml(s: string): string {
     .replace(/>/g, '&gt;');
 }
 
+// ── Gespeicherte Filter (pro Benutzer, serverseitig, max. 5) ───────────────────────────────
+interface FilterSpec {
+  host: string; severity: string[]; facility: string[]; program: string; q: string;
+  regex: boolean; time_preset: string; time_from: string; time_to: string; limit: number;
+}
+interface SavedFilter { id: string; name: string; filter: FilterSpec }
+
+const DEFAULT_SPEC: FilterSpec = {
+  host: '', severity: [], facility: [], program: '', q: '', regex: false,
+  time_preset: '', time_from: '', time_to: '', limit: 500,
+};
+
+const savedFilters     = ref<SavedFilter[]>([]);
+const maxSavedFilters  = ref(5);
+const selectedFilterId = ref('');
+const showSave         = ref(false);
+const saveName         = ref('');
+const infoMsg          = ref('');
+let infoTimer: ReturnType<typeof setTimeout> | undefined;
+
+const saveMode     = ref<'new' | 'rename'>('new');
+const nameExists   = computed(() =>
+  savedFilters.value.some(f => f.name.toLowerCase() === saveName.value.trim().toLowerCase()));
+// Beim Umbenennen darf der Name nur nicht von einem ANDEREN Filter belegt sein
+const nameTaken    = computed(() => saveMode.value === 'rename' && savedFilters.value.some(f =>
+  f.id !== selectedFilterId.value && f.name.toLowerCase() === saveName.value.trim().toLowerCase()));
+const limitReached = computed(() => savedFilters.value.length >= maxSavedFilters.value);
+
+function flashInfo(msg: string) {
+  infoMsg.value = msg;
+  clearTimeout(infoTimer);
+  infoTimer = setTimeout(() => { infoMsg.value = ''; }, 3500);
+}
+onBeforeUnmount(() => clearTimeout(infoTimer));
+
+function currentSpec(): FilterSpec {
+  return {
+    host: filterHost.value,
+    severity: [...filterSeverity.value],
+    facility: [...filterFacility.value],
+    program: filterProgram.value.trim(),
+    q: searchText.value.trim(),
+    regex: useRegex.value,
+    time_preset: timePreset.value,
+    time_from: timeFrom.value,
+    time_to: timeTo.value,
+    limit: Number(limitVal.value) || 500,
+  };
+}
+
+function applySpec(s: FilterSpec) {
+  filterHost.value     = s.host;
+  filterSeverity.value = [...s.severity];
+  filterFacility.value = [...s.facility];
+  filterProgram.value  = s.program;
+  searchText.value     = s.q;
+  useRegex.value       = s.regex;
+  timePreset.value     = s.time_preset;
+  timeFrom.value       = s.time_from;
+  timeTo.value         = s.time_to;
+  limitVal.value       = s.limit;
+}
+
+async function loadSavedFilters() {
+  try {
+    const res = await apiClient.get('/users/me/filters');
+    savedFilters.value = res.data.filters ?? [];
+    maxSavedFilters.value = res.data.max ?? 5;
+  } catch { /* Filterliste ist optional */ }
+}
+
+function onSelectSaved() {
+  const f = savedFilters.value.find(x => x.id === selectedFilterId.value);
+  if (!f) return;
+  applySpec(f.filter);
+  loadLogs();
+}
+
+function startSave() {
+  const cur = savedFilters.value.find(f => f.id === selectedFilterId.value);
+  saveMode.value = 'new';
+  saveName.value = cur?.name ?? '';
+  showSave.value = true;
+}
+
+function startRename() {
+  const cur = savedFilters.value.find(f => f.id === selectedFilterId.value);
+  if (!cur) return;
+  saveMode.value = 'rename';
+  saveName.value = cur.name;
+  showSave.value = true;
+}
+
+async function confirmSave() {
+  const name = saveName.value.trim();
+  if (!name || nameTaken.value) return;
+  if (saveMode.value === 'new' && limitReached.value && !nameExists.value) return;
+  try {
+    let res;
+    if (saveMode.value === 'rename') {
+      res = await apiClient.patch(`/users/me/filters/${selectedFilterId.value}`, { name });
+    } else {
+      res = await apiClient.put('/users/me/filters', { name, filter: currentSpec() });
+    }
+    const keepId = saveMode.value === 'rename' ? selectedFilterId.value : '';
+    savedFilters.value = res.data.filters ?? [];
+    selectedFilterId.value = keepId
+      || savedFilters.value.find(x => x.name.toLowerCase() === name.toLowerCase())?.id || '';
+    flashInfo(saveMode.value === 'rename' ? `Filter in „${name}“ umbenannt.` : `Filter „${name}“ gespeichert.`);
+    showSave.value = false;
+    saveName.value = '';
+    errorMsg.value = '';
+  } catch (e: any) {
+    errorMsg.value = e?.response?.data?.detail ?? 'Der Filter konnte nicht gespeichert werden.';
+  }
+}
+
+// Den ausgewählten Filter mit den AKTUELLEN Filtereinstellungen überschreiben (Name bleibt)
+async function updateSelected() {
+  const f = savedFilters.value.find(x => x.id === selectedFilterId.value);
+  if (!f) return;
+  try {
+    const res = await apiClient.patch(`/users/me/filters/${f.id}`, { filter: currentSpec() });
+    savedFilters.value = res.data.filters ?? [];
+    errorMsg.value = '';
+    flashInfo(`Filter „${f.name}“ mit den aktuellen Einstellungen aktualisiert.`);
+  } catch (e: any) {
+    errorMsg.value = e?.response?.data?.detail ?? 'Der Filter konnte nicht aktualisiert werden.';
+  }
+}
+
+async function deleteSelected() {
+  const f = savedFilters.value.find(x => x.id === selectedFilterId.value);
+  if (!f || !confirm(`Gespeicherten Filter „${f.name}“ löschen?`)) return;
+  try {
+    const res = await apiClient.delete(`/users/me/filters/${f.id}`);
+    savedFilters.value = res.data.filters ?? [];
+    selectedFilterId.value = '';
+    flashInfo(`Filter „${f.name}“ gelöscht.`);
+  } catch (e: any) {
+    errorMsg.value = e?.response?.data?.detail ?? 'Der Filter konnte nicht gelöscht werden.';
+  }
+}
+
+function resetFilters() {
+  applySpec(DEFAULT_SPEC);
+  selectedFilterId.value = '';
+  loadLogs();
+}
+
 onMounted(async () => {
   await loadHosts();
+  loadSavedFilters();
   await loadLogs();
 });
 </script>
@@ -411,6 +591,10 @@ onMounted(async () => {
 /* Search highlight */
 :deep(mark) { background: var(--mark-bg); color: var(--mark-fg); border-radius: 2px; padding: 0 1px; }
 
+.saved-row {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  padding-bottom: 10px; margin-bottom: 12px; border-bottom: 1px solid var(--border-soft);
+}
 .label-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .rx-toggle { font-size: 11px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
 .rx-toggle input { accent-color: var(--ks-400); margin: 0; }

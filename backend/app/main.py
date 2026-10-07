@@ -15,6 +15,7 @@ from .rsyslog import router as rsyslog_router
 from .security import hash_password
 from .settings import router as settings_router
 from .syslogs import router as syslogs_router
+from .saved_filters import router as saved_filters_router
 from .users import router as users_router
 
 # basicConfig first so root logger level = INFO, then ring-buffer handler
@@ -42,6 +43,7 @@ app.include_router(stats_router)
 app.include_router(rsyslog_router)
 app.include_router(settings_router)
 app.include_router(syslogs_router)
+app.include_router(saved_filters_router)
 app.include_router(users_router)
 
 
