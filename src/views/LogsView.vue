@@ -50,11 +50,16 @@
 
         <!-- Search -->
         <div class="filter-group" style="flex:3;">
-          <label class="filter-label">Suche</label>
+          <div class="label-row">
+            <label class="filter-label">Suche</label>
+            <label class="rx-toggle" title="Suchtext als regulären Ausdruck auswerten (Groß-/Kleinschreibung egal), z. B. timeout|refused">
+              <input type="checkbox" v-model="useRegex" @change="loadLogs" /> Regex
+            </label>
+          </div>
           <input
             class="input input-sm"
             v-model="searchText"
-            placeholder="Freitext-Suche in Nachricht …"
+            :placeholder="useRegex ? 'Regulärer Ausdruck, z. B. timeout|refused …' : 'Freitext-Suche in Nachricht …'"
             @input="scheduleLoad"
             style="width:100%;"
           />
@@ -98,6 +103,8 @@
         </div>
       </div>
     </div>
+
+    <div v-if="errorMsg" class="alert alert-error" style="margin-bottom:16px;">{{ errorMsg }}</div>
 
     <!-- Log table -->
     <div class="card">
@@ -176,6 +183,8 @@ const timePreset     = ref('');
 const timeFrom       = ref('');
 const timeTo         = ref('');
 const truncated      = ref(false);
+const useRegex       = ref(false);
+const errorMsg       = ref('');
 
 const SEVERITY_OPTIONS = [
   { value: '0', label: '0 emerg' },  { value: '1', label: '1 alert' },
@@ -227,6 +236,7 @@ let requestSeq = 0;
 async function loadLogs() {
   clearTimeout(debounceTimer);
   const seq = ++requestSeq;
+  errorMsg.value = '';
   loading.value = true;
   try {
     await auth.initialize();
@@ -235,7 +245,10 @@ async function loadLogs() {
     if (filterSeverity.value.length) params.severity = filterSeverity.value.join(',');
     if (filterFacility.value.length) params.facility = filterFacility.value.join(',');
     if (filterProgram.value.trim()) params.program = filterProgram.value.trim();
-    if (searchText.value.trim()) params.q = searchText.value.trim();
+    if (searchText.value.trim()) {
+      params.q = searchText.value.trim();
+      if (useRegex.value) params.regex = true;
+    }
     if (timePreset.value === 'custom') {
       const since = localToIso(timeFrom.value);
       const until = localToIso(timeTo.value);
@@ -248,8 +261,10 @@ async function loadLogs() {
     if (seq !== requestSeq) return; // veraltete Antwort ignorieren
     allEntries.value = res.data.entries ?? [];
     truncated.value = !!res.data.truncated;
-  } catch {
+  } catch (e: any) {
     if (seq !== requestSeq) return;
+    // 400 = ungültige Eingabe (z. B. fehlerhafter Regex) -> Meldung anzeigen
+    errorMsg.value = e?.response?.status === 400 ? String(e.response.data?.detail ?? 'Ungültige Anfrage') : '';
     allEntries.value = [];
     truncated.value = false;
   } finally {
@@ -296,9 +311,26 @@ function severityRowClass(sev: unknown): string {
   return '';
 }
 
+function highlightRegex(msg: string): string {
+  // Nur Anzeige-Hervorhebung (JS-Syntax); bei Fehler/sehr langen Nachrichten ohne Markierung
+  if (msg.length > 2000) return escHtml(msg);
+  let re: RegExp;
+  try { re = new RegExp(searchText.value.trim(), 'gi'); } catch { return escHtml(msg); }
+  let out = '';
+  let last = 0;
+  for (const m of msg.matchAll(re)) {
+    if (!m[0]) continue;
+    const i = m.index ?? 0;
+    out += escHtml(msg.slice(last, i)) + '<mark>' + escHtml(m[0]) + '</mark>';
+    last = i + m[0].length;
+  }
+  return out + escHtml(msg.slice(last));
+}
+
 function highlightSearch(text: string): string {
   const msg = String(text);
   if (!searchText.value) return escHtml(msg);
+  if (useRegex.value) return highlightRegex(msg);
   const q = searchText.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return escHtml(msg).replace(
     new RegExp(`(${q})`, 'gi'),
@@ -379,6 +411,9 @@ onMounted(async () => {
 /* Search highlight */
 :deep(mark) { background: var(--mark-bg); color: var(--mark-fg); border-radius: 2px; padding: 0 1px; }
 
+.label-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.rx-toggle { font-size: 11px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
+.rx-toggle input { accent-color: var(--ks-400); margin: 0; }
 .trunc-note { color: #b45309; font-weight: 600; cursor: help; }
 @media (prefers-color-scheme: dark) { .trunc-note { color: #fbbf24; } }
 </style>
