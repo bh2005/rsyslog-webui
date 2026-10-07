@@ -27,42 +27,13 @@
         <!-- Severity filter -->
         <div class="filter-group">
           <label class="filter-label">Schweregrad</label>
-          <select class="select-inline" v-model="filterSeverity" @change="applyFilters">
-            <option value="">— alle —</option>
-            <option value="0">0 emerg</option>
-            <option value="1">1 alert</option>
-            <option value="2">2 crit</option>
-            <option value="3">3 err</option>
-            <option value="4">4 warning</option>
-            <option value="5">5 notice</option>
-            <option value="6">6 info</option>
-            <option value="7">7 debug</option>
-          </select>
+          <MultiSelect v-model="filterSeverity" :options="SEVERITY_OPTIONS" @update:modelValue="loadLogs" />
         </div>
 
         <!-- Facility filter -->
         <div class="filter-group">
           <label class="filter-label">Facility</label>
-          <select class="select-inline" v-model="filterFacility" @change="applyFilters">
-            <option value="">— alle —</option>
-            <option value="kern">kern</option>
-            <option value="user">user</option>
-            <option value="mail">mail</option>
-            <option value="daemon">daemon</option>
-            <option value="auth">auth</option>
-            <option value="syslog">syslog</option>
-            <option value="lpr">lpr</option>
-            <option value="news">news</option>
-            <option value="cron">cron</option>
-            <option value="local0">local0</option>
-            <option value="local1">local1</option>
-            <option value="local2">local2</option>
-            <option value="local3">local3</option>
-            <option value="local4">local4</option>
-            <option value="local5">local5</option>
-            <option value="local6">local6</option>
-            <option value="local7">local7</option>
-          </select>
+          <MultiSelect v-model="filterFacility" :options="FACILITY_OPTIONS" @update:modelValue="loadLogs" />
         </div>
 
         <!-- Program filter -->
@@ -72,7 +43,7 @@
             class="input input-sm"
             v-model="filterProgram"
             placeholder="z.B. sshd, kernel …"
-            @input="applyFilters"
+            @input="scheduleLoad"
             style="width:100%;"
           />
         </div>
@@ -84,7 +55,7 @@
             class="input input-sm"
             v-model="searchText"
             placeholder="Freitext-Suche in Nachricht …"
-            @input="applyFilters"
+            @input="scheduleLoad"
             style="width:100%;"
           />
         </div>
@@ -132,7 +103,9 @@
     <div class="card">
       <div class="card-header">
         <span>Log-Einträge</span>
-        <span class="text-muted text-sm">{{ filtered.length }} Einträge{{ totalLoaded !== filtered.length ? ` (von ${totalLoaded} geladen)` : '' }}</span>
+        <span class="text-muted text-sm">
+          <span v-if="truncated" class="trunc-note" title="Die Suche hat pro Datei nur die neuesten Zeilen durchsucht. Zeitraum oder Host eingrenzen, um gezielt weiter zurückzusuchen.">Suche begrenzt · </span>{{ filtered.length }} Einträge
+        </span>
       </div>
       <div class="log-table-wrap">
         <table class="data-table log-table" v-if="filtered.length">
@@ -171,7 +144,7 @@
         <div v-else-if="loading" class="log-empty">Lade …</div>
         <div v-else class="log-empty text-muted">
           Keine Einträge gefunden.
-          <span v-if="searchText || filterSeverity || filterFacility || filterProgram || timePreset">
+          <span v-if="searchText || filterSeverity.length || filterFacility.length || filterProgram || timePreset">
             Filter zurücksetzen um alle anzuzeigen.
           </span>
         </div>
@@ -182,7 +155,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import MultiSelect from '../components/MultiSelect.vue';
 import { useAuthStore } from '../stores/auth';
 import { apiClient } from '../api';
 
@@ -193,52 +167,38 @@ const availableHosts = ref<string[]>([]);
 const loading        = ref(false);
 
 const filterHost     = ref('');
-const filterSeverity = ref('');
-const filterFacility = ref('');
+const filterSeverity = ref<string[]>([]);
+const filterFacility = ref<string[]>([]);
 const filterProgram  = ref('');
 const searchText     = ref('');
 const limitVal       = ref(500);
 const timePreset     = ref('');
 const timeFrom       = ref('');
 const timeTo         = ref('');
+const truncated      = ref(false);
 
-const totalLoaded = computed(() => allEntries.value.length);
+const SEVERITY_OPTIONS = [
+  { value: '0', label: '0 emerg' },  { value: '1', label: '1 alert' },
+  { value: '2', label: '2 crit' },   { value: '3', label: '3 err' },
+  { value: '4', label: '4 warning' }, { value: '5', label: '5 notice' },
+  { value: '6', label: '6 info' },   { value: '7', label: '7 debug' },
+];
+const FACILITY_OPTIONS = [
+  'kern', 'user', 'mail', 'daemon', 'auth', 'syslog', 'lpr', 'news', 'cron',
+  'local0', 'local1', 'local2', 'local3', 'local4', 'local5', 'local6', 'local7',
+].map(f => ({ value: f, label: f }));
 
-// Client-side filtering (host filter is server-side, the rest client-side)
-const filtered = computed(() => {
-  let list = allEntries.value;
+// Alle Filter werden serverseitig angewendet (vor dem Zeilenlimit), damit auch seltene
+// Treffer gefunden werden und Einträge aller Hosts zeitlich gemischt erscheinen.
+const filtered = computed(() => allEntries.value);
 
-  if (filterSeverity.value !== '') {
-    const sev = Number(filterSeverity.value);
-    list = list.filter(e => {
-      const s = Number(e.syslogseverity ?? e.severity ?? 99);
-      return s === sev;
-    });
-  }
-  if (filterFacility.value) {
-    const fac = filterFacility.value.toLowerCase();
-    list = list.filter(e =>
-      String(e.syslogfacility_text ?? e.facility ?? '').toLowerCase() === fac,
-    );
-  }
-  if (filterProgram.value) {
-    const prog = filterProgram.value.toLowerCase();
-    list = list.filter(e =>
-      String(e.programname ?? e.program ?? '').toLowerCase().includes(prog),
-    );
-  }
-  if (searchText.value) {
-    const q = searchText.value.toLowerCase();
-    list = list.filter(e =>
-      String(e.msg ?? e.message ?? e.raw ?? '').toLowerCase().includes(q),
-    );
-  }
-  return list;
-});
-
-function applyFilters() {
-  // Reactivity handles it via computed — called on input for searchText / program.
+// Texteingaben entprellen, damit nicht jeder Tastendruck einen Request auslöst
+let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleLoad() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(loadLogs, 400);
 }
+onBeforeUnmount(() => clearTimeout(debounceTimer));
 
 async function loadHosts() {
   try {
@@ -262,12 +222,20 @@ function localToIso(v: string): string | undefined {
   return isNaN(d.getTime()) ? undefined : d.toISOString();
 }
 
+let requestSeq = 0;
+
 async function loadLogs() {
+  clearTimeout(debounceTimer);
+  const seq = ++requestSeq;
   loading.value = true;
   try {
     await auth.initialize();
     const params: Record<string, unknown> = { limit: limitVal.value };
     if (filterHost.value) params.host = filterHost.value;
+    if (filterSeverity.value.length) params.severity = filterSeverity.value.join(',');
+    if (filterFacility.value.length) params.facility = filterFacility.value.join(',');
+    if (filterProgram.value.trim()) params.program = filterProgram.value.trim();
+    if (searchText.value.trim()) params.q = searchText.value.trim();
     if (timePreset.value === 'custom') {
       const since = localToIso(timeFrom.value);
       const until = localToIso(timeTo.value);
@@ -277,11 +245,15 @@ async function loadLogs() {
       params.since = new Date(Date.now() - PRESET_MS[timePreset.value]).toISOString();
     }
     const res = await apiClient.get('/rsyslog/remote-logs', { params });
+    if (seq !== requestSeq) return; // veraltete Antwort ignorieren
     allEntries.value = res.data.entries ?? [];
+    truncated.value = !!res.data.truncated;
   } catch {
+    if (seq !== requestSeq) return;
     allEntries.value = [];
+    truncated.value = false;
   } finally {
-    loading.value = false;
+    if (seq === requestSeq) loading.value = false;
   }
 }
 
@@ -361,27 +333,52 @@ onMounted(async () => {
 
 .log-table-wrap { max-height: 65vh; overflow-y: auto; }
 .log-table { font-size: 12px; }
-.log-table th { position: sticky; top: 0; background: var(--bg-muted); z-index: 1; }
+.log-table th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
 .ts-cell { white-space: nowrap; font-family: ui-monospace, monospace; color: var(--text-muted); font-size: 11px; }
 .msg-cell { word-break: break-word; max-width: 500px; }
 .log-empty { padding: 24px; text-align: center; font-size: 13px; }
 
+/* Farben als Variablen; Dark Mode überschreibt sie (wie styles.css via prefers-color-scheme) */
+.log-table-wrap, .log-table {
+  --row-crit: #fef2f2; --row-err: #fff7ed; --row-warn: #fefce8;
+  --sev-crit-bg: #fee2e2; --sev-crit-fg: #991b1b;
+  --sev-err-bg: #ffedd5;  --sev-err-fg: #9a3412;
+  --sev-warn-bg: #fef9c3; --sev-warn-fg: #854d0e;
+  --sev-notice-bg: #e0f2fe; --sev-notice-fg: #075985;
+  --sev-info-bg: #f1f5f9; --sev-info-fg: #475569;
+  --mark-bg: #fde68a; --mark-fg: inherit;
+}
+@media (prefers-color-scheme: dark) {
+  .log-table-wrap, .log-table {
+    --row-crit: rgba(239, 68, 68, .16); --row-err: rgba(249, 115, 22, .14); --row-warn: rgba(234, 179, 8, .12);
+    --sev-crit-bg: #450a0a; --sev-crit-fg: #fca5a5;
+    --sev-err-bg: #431407;  --sev-err-fg: #fdba74;
+    --sev-warn-bg: #422006; --sev-warn-fg: #fde68a;
+    --sev-notice-bg: #0c2d48; --sev-notice-fg: #7dd3fc;
+    --sev-info-bg: #1e293b; --sev-info-fg: #94a3b8;
+    --mark-bg: #854d0e; --mark-fg: #fef9c3;
+  }
+}
+
 /* Row severity tints */
-.row-crit td { background: #fef2f2; }
-.row-err  td { background: #fff7ed; }
-.row-warn td { background: #fefce8; }
+.row-crit td { background: var(--row-crit); }
+.row-err  td { background: var(--row-err); }
+.row-warn td { background: var(--row-warn); }
 
 /* Severity badges */
 .sev-badge {
   display: inline-block; padding: 1px 6px; border-radius: 4px;
   font-size: 10px; font-weight: 700; font-family: ui-monospace, monospace; white-space: nowrap;
 }
-.sev-crit   { background: #fee2e2; color: #991b1b; }
-.sev-err    { background: #ffedd5; color: #9a3412; }
-.sev-warn   { background: #fef9c3; color: #854d0e; }
-.sev-notice { background: #e0f2fe; color: #075985; }
-.sev-info   { background: #f1f5f9; color: #475569; }
+.sev-crit   { background: var(--sev-crit-bg);   color: var(--sev-crit-fg); }
+.sev-err    { background: var(--sev-err-bg);    color: var(--sev-err-fg); }
+.sev-warn   { background: var(--sev-warn-bg);   color: var(--sev-warn-fg); }
+.sev-notice { background: var(--sev-notice-bg); color: var(--sev-notice-fg); }
+.sev-info   { background: var(--sev-info-bg);   color: var(--sev-info-fg); }
 
 /* Search highlight */
-:deep(mark) { background: #fde68a; color: inherit; border-radius: 2px; padding: 0 1px; }
+:deep(mark) { background: var(--mark-bg); color: var(--mark-fg); border-radius: 2px; padding: 0 1px; }
+
+.trunc-note { color: #b45309; font-weight: 600; cursor: help; }
+@media (prefers-color-scheme: dark) { .trunc-note { color: #fbbf24; } }
 </style>

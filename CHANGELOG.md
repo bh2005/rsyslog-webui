@@ -4,8 +4,14 @@
 
 ### Added
 - Log analysis: time range filter (presets 1h / 6h / 24h / 7d or custom from/to)
-- `GET /rsyslog/remote-logs` accepts optional `since` / `until` (ISO 8601); filtering happens
+- Log analysis: multi-select for severity and facility; dark mode colors for the log table
+- `GET /rsyslog/remote-logs` accepts optional `since` / `until` (ISO 8601) plus `severity`, `facility`, `program`, `q`; filtering happens
   server-side so the row limit does not cut off older ranges
+
+### Fixed
+- Log analysis: with host "alle" the first file filled the row limit, so filters (e.g. facility `kern`) showed no entries.
+  All filters now run server-side before the limit and entries of all hosts are merged by time;
+  log files are read from the end instead of fully (large files)
 
 ### Changed
 - Receiver: sender hosts without any log file show "keine Logs empfangen" instead of an empty cell

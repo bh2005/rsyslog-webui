@@ -73,14 +73,16 @@ export const helpTexts: Record<string, string> = {
 <h3>Filter</h3>
 <ul>
   <li><b>Host</b> – Server-seitiger Filter (nur sichtbare Hosts)</li>
-  <li><b>Severity</b> – 0 Emerg bis 7 Debug</li>
-  <li><b>Facility</b> – kern, user, mail, daemon, auth …</li>
+  <li><b>Severity</b> – 0 Emerg bis 7 Debug (Mehrfachauswahl)</li>
+  <li><b>Facility</b> – kern, user, mail, daemon, auth … (Mehrfachauswahl)</li>
   <li><b>Programm</b> – Freitext-Filter auf programname</li>
   <li><b>Suche</b> – Volltext in msg-Feld, Treffer werden <mark>gelb markiert</mark></li>
   <li><b>Zeitraum</b> – Letzte Stunde / 6 Stunden / 24 Stunden / 7 Tage oder <i>Benutzerdefiniert</i> mit <b>Von</b> / <b>Bis</b> (Browser-Lokalzeit)</li>
   <li><b>Max. Zeilen</b> – Maximale Anzahl Einträge (10–2000, Standard 500)</li>
 </ul>
-<p>Der Zeitraum wird serverseitig angewendet. Das Zeilenlimit gilt erst danach, ältere Zeiträume sind also auch bei vielen neueren Einträgen erreichbar. Einträge ohne lesbaren Zeitstempel werden bei aktivem Zeitraum ausgeblendet.</p>
+<p><b>Schweregrad</b> und <b>Facility</b> erlauben Mehrfachauswahl (Haken setzen, „Auswahl zurücksetzen“ leert sie).</p>
+<p>Alle Filter werden serverseitig angewendet, <i>bevor</i> das Zeilenlimit greift. Treffer sind also auch dann sichtbar, wenn andere Hosts neuere Einträge schreiben. Bei „Host: alle“ werden die Einträge aller Hosts nach Zeit gemischt. Einträge ohne lesbaren Zeitstempel werden bei aktivem Zeitraum ausgeblendet.</p>
+<p>Erscheint „Suche begrenzt“ über der Liste, wurden pro Datei nur die neuesten Zeilen durchsucht (bei sehr großen Dateien). Dann Zeitraum oder Host eingrenzen.</p>
 <h3>Farb-Kodierung</h3>
 <table>
   <tr><th>Farbe</th><th>Severity</th></tr>
