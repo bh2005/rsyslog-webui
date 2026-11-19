@@ -1,3 +1,5 @@
+import anyio
+import os
 import logging
 
 from fastapi import FastAPI
@@ -50,6 +52,10 @@ app.include_router(users_router)
 @app.on_event("startup")
 async def startup_event() -> None:
     initialize_users()
+    # Sync routes run in a thread pool (default limit ~40 threads). On small hosts 40 parallel
+    # file scans can overload the CPU and starve even trivial requests (login). The limit is
+    # configurable via WORKER_THREADS (default 8).
+    anyio.to_thread.current_default_thread_limiter().total_tokens = int(os.environ.get("WORKER_THREADS", "8"))
     logger.info("rsyslog-manager-api started (version: %s)", settings.app_name)
 
 

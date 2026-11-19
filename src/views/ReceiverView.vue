@@ -515,11 +515,14 @@ const sortedHeartbeatHosts = computed(() =>
 );
 
 function dirFor(host: string): LogDir | undefined {
-  return logDirs.value.find(d => d.name === host);
+  // The heartbeat returns lowercase host names while directories keep their capitalization (e.g. "BigIP");
+  // group entries like "bigip/node1" belong to the top-level directory ("BigIP")
+  const h = host.split('/')[0].toLowerCase();
+  return logDirs.value.find(d => d.name.toLowerCase() === h);
 }
 
 function dirSizeFor(host: string): string {
-  const d = logDirs.value.find(d => d.name === host);
+  const d = dirFor(host);
   return d ? formatBytes(d.size_bytes) : '—';
 }
 

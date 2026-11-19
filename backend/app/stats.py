@@ -96,17 +96,45 @@ def _disk_info(path: str = "/") -> dict:
 _prev_events: dict = {"count": 0, "ts": 0.0}
 
 
+_RECENT_WINDOW_S = 3600  # only touch files that may currently be growing
+_line_count_cache: dict[str, tuple[int, int]] = {}  # path -> (last_size, cumulative_lines)
+
+
 def _count_log_lines() -> int:
-    """Count total log lines across all syslog files."""
+    """Count log lines in recently-modified syslog files.
+
+    Reads only the bytes appended since the previous call (like `tail -f`) instead of the
+    whole file - re-reading months-old files of hundreds of MB on every request (polled every
+    few seconds by the dashboard) caused seconds of latency and the memory/IO pressure that
+    can get the process killed by the OOM killer.
+    """
     if not SYSLOG_DATA_DIR.exists():
         return 0
+    cutoff = time.time() - _RECENT_WINDOW_S
     total = 0
+    seen: set = set()
     try:
         for f in SYSLOG_DATA_DIR.rglob("*.log"):
             try:
-                total += sum(1 for _ in f.open("rb"))
+                st = f.stat()
+                if st.st_mtime < cutoff:
+                    continue
+                key = str(f)
+                seen.add(key)
+                last_size, last_count = _line_count_cache.get(key, (0, 0))
+                if st.st_size < last_size:  # file was rotated/truncated
+                    last_size, last_count = 0, 0
+                count = last_count
+                if st.st_size > last_size:
+                    with f.open("rb") as fh:
+                        fh.seek(last_size)
+                        count += fh.read().count(b"\n")
+                _line_count_cache[key] = (st.st_size, count)
+                total += count
             except OSError:
                 pass
+        for stale_key in set(_line_count_cache) - seen:
+            del _line_count_cache[stale_key]
     except Exception:
         pass
     return total
@@ -155,7 +183,7 @@ def _rsyslog_meta() -> dict:
 # ── Combined endpoint ─────────────────────────────────────────────────────────
 
 @router.get("/stats")
-async def get_stats(current_user: dict = Depends(get_current_user)):
+def get_stats(current_user: dict = Depends(get_current_user)):
     load = _load_avg()
     syslog_data_disk = _disk_info(str(SYSLOG_DATA_DIR) if SYSLOG_DATA_DIR.exists() else "/data")
     return {
@@ -178,7 +206,7 @@ async def get_stats(current_user: dict = Depends(get_current_user)):
 # ── Prometheus /metrics ───────────────────────────────────────────────────────
 
 @router.get("/metrics", response_class=PlainTextResponse)
-async def prometheus_metrics(current_user: dict = Depends(get_current_user)):
+def prometheus_metrics(current_user: dict = Depends(get_current_user)):
     cpu   = _cpu_percent()
     load  = _load_avg()
     mem   = _mem_info()
@@ -224,7 +252,7 @@ async def prometheus_metrics(current_user: dict = Depends(get_current_user)):
 # ── Check_MK local check output ───────────────────────────────────────────────
 
 @router.get("/checkmk", response_class=PlainTextResponse)
-async def checkmk_output(current_user: dict = Depends(get_current_user)):
+def checkmk_output(current_user: dict = Depends(get_current_user)):
     """
     Output in Check_MK local check format:
       <status> <service_name> <perfdata> <summary>

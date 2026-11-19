@@ -1,3 +1,4 @@
+from collections import deque
 import difflib
 import io
 import json
@@ -113,7 +114,7 @@ def get_logs(lines: int, priority: Optional[str] = None) -> str:
 
 
 @router.get("/status")
-async def get_rsyslog_status(current_user: dict = Depends(get_current_user)):
+def get_rsyslog_status(current_user: dict = Depends(get_current_user)):
     status_data = get_service_status()
     # Extended systemd properties
     props = [
@@ -145,14 +146,14 @@ async def get_rsyslog_status(current_user: dict = Depends(get_current_user)):
 
 
 @router.get("/config")
-async def get_rsyslog_config(current_user: dict = Depends(get_current_user)):
+def get_rsyslog_config(current_user: dict = Depends(get_current_user)):
     config_data = get_config_summary()
     config_data["editable"] = current_user["role"] in [UserRole.admin, UserRole.operator]
     return config_data
 
 
 @router.put("/config")
-async def update_rsyslog_config(
+def update_rsyslog_config(
     payload: RsyslogConfigUpdate,
     current_user: dict = Depends(require_role([UserRole.admin, UserRole.operator])),
 ):
@@ -165,7 +166,7 @@ async def update_rsyslog_config(
 
 
 @router.post("/config/check")
-async def check_rsyslog_config(
+def check_rsyslog_config(
     payload: RsyslogConfigUpdate,
     current_user: dict = Depends(require_role([UserRole.admin, UserRole.operator])),
 ):
@@ -194,35 +195,35 @@ async def check_rsyslog_config(
 
 
 @router.post("/reload", status_code=status.HTTP_200_OK)
-async def reload_rsyslog_config(current_user: dict = Depends(require_role([UserRole.admin, UserRole.operator]))):
+def reload_rsyslog_config(current_user: dict = Depends(require_role([UserRole.admin, UserRole.operator]))):
     run_command(["sudo", "-n", "systemctl", "reload", LOG_SERVICE])
     log_action(current_user["username"], "service.reload", LOG_SERVICE)
     return {"status": "success", "message": "rsyslog configuration reloaded successfully."}
 
 
 @router.post("/restart", status_code=status.HTTP_200_OK)
-async def restart_rsyslog(current_user: dict = Depends(require_role([UserRole.admin]))):
+def restart_rsyslog(current_user: dict = Depends(require_role([UserRole.admin]))):
     run_command(["sudo", "-n", "systemctl", "restart", LOG_SERVICE])
     log_action(current_user["username"], "service.restart", LOG_SERVICE)
     return {"status": "success", "message": "rsyslog service restarted."}
 
 
 @router.post("/stop", status_code=status.HTTP_200_OK)
-async def stop_rsyslog(current_user: dict = Depends(require_role([UserRole.admin]))):
+def stop_rsyslog(current_user: dict = Depends(require_role([UserRole.admin]))):
     run_command(["sudo", "-n", "systemctl", "stop", LOG_SERVICE])
     log_action(current_user["username"], "service.stop", LOG_SERVICE)
     return {"status": "success", "message": "rsyslog service stopped."}
 
 
 @router.post("/start", status_code=status.HTTP_200_OK)
-async def start_rsyslog(current_user: dict = Depends(require_role([UserRole.admin]))):
+def start_rsyslog(current_user: dict = Depends(require_role([UserRole.admin]))):
     run_command(["sudo", "-n", "systemctl", "start", LOG_SERVICE])
     log_action(current_user["username"], "service.start", LOG_SERVICE)
     return {"status": "success", "message": "rsyslog service started."}
 
 
 @router.get("/config/history")
-async def list_config_history(current_user: dict = Depends(get_current_user)):
+def list_config_history(current_user: dict = Depends(get_current_user)):
     """List available config snapshots, newest first."""
     if not HISTORY_DIR.exists():
         return {"snapshots": []}
@@ -243,7 +244,7 @@ async def list_config_history(current_user: dict = Depends(get_current_user)):
 
 
 @router.get("/config/history/{snapshot_name}")
-async def get_config_snapshot(
+def get_config_snapshot(
     snapshot_name: str,
     current_user: dict = Depends(get_current_user),
 ):
@@ -270,7 +271,7 @@ async def get_config_snapshot(
 
 
 @router.post("/config/rollback")
-async def rollback_config(
+def rollback_config(
     payload: dict,
     current_user: dict = Depends(require_role([UserRole.admin])),
 ):
@@ -287,7 +288,7 @@ async def rollback_config(
 
 
 @router.get("/config/download")
-async def download_config(current_user: dict = Depends(get_current_user)):
+def download_config(current_user: dict = Depends(get_current_user)):
     """Download current rsyslog.conf as file attachment."""
     if not CONFIG_PATH.exists():
         raise HTTPException(status_code=404, detail="Datei nicht gefunden")
@@ -315,7 +316,7 @@ async def restore_config(
 
 
 @router.get("/logs")
-async def get_rsyslog_logs(
+def get_rsyslog_logs(
     lines: int = Query(100, ge=10, le=1000),
     priority: Optional[str] = Query(None),
     current_user: dict = Depends(get_current_user),
@@ -327,7 +328,9 @@ async def get_rsyslog_logs(
 def _user_allowed_hosts(username: str) -> Optional[List[str]]:
     """Return allowed host list (group-aware), or None meaning unrestricted."""
     from .groups import get_user_effective_hosts
-    return get_user_effective_hosts(username)
+    hosts = get_user_effective_hosts(username)
+    # compare host names case-insensitively (log directories/file names are lowercase)
+    return [h.strip().lower() for h in hosts] if hosts is not None else None
 
 
 def _hostname_from_path(log_file: Path) -> str:
@@ -337,9 +340,14 @@ def _hostname_from_path(log_file: Path) -> str:
       host-based:     /data/syslog/HOSTNAME/YYYY/MM/HOSTNAME_[IP].log
       category-based: /data/syslog/CATEGORY/YYYY/MM/HOSTNAME_[IP].log
     The hostname is always encoded in the filename stem as HOSTNAME_[IP].
+
+    Lowercased: rsyslog's %HOSTNAME% keeps the capitalization of the sending client
+    (e.g. "SERVER01_[127.0.0.1].log" for the server itself, mixed with lowercase hosts),
+    while host assignments are compared case-insensitively. Normalizing here keeps
+    both sides consistent.
     """
     stem = log_file.stem  # e.g. "server01_[192.168.1.10]"
-    return stem.split("_[")[0] if "_[" in stem else stem
+    return (stem.split("_[")[0] if "_[" in stem else stem).lower()
 
 
 def _parse_log_line(line: str, hostname_fallback: str) -> Dict:
@@ -569,7 +577,7 @@ def _parse_csv_set(value: Optional[str], kind: str) -> Optional[set]:
 
 
 @router.get("/remote-logs")
-async def get_remote_logs(
+def get_remote_logs(
     limit: int = Query(200, ge=10, le=2000),
     host: Optional[str] = Query(None, description="Filter by hostname"),
     since: Optional[str] = Query(None, description="Lower bound (ISO 8601)"),
@@ -620,7 +628,7 @@ async def get_remote_logs(
 
 
 @router.get("/remote-logs/hosts")
-async def get_available_hosts(current_user: dict = Depends(get_current_user)):
+def get_available_hosts(current_user: dict = Depends(get_current_user)):
     """Return list of hosts visible to this user (from log files on disk)."""
     allowed = _user_allowed_hosts(current_user["username"])
     found: set[str] = set()
@@ -646,14 +654,14 @@ def _safe_log_path(rel_path: str, allowed_hosts: Optional[List[str]]) -> Path:
     except ValueError:
         raise HTTPException(status_code=403, detail="Zugriff verweigert")
     # Extract hostname from first path component
-    hostname = rel_path.split("/")[0]
+    hostname = rel_path.split("/")[0].lower()
     if allowed_hosts is not None and hostname not in allowed_hosts:
         raise HTTPException(status_code=403, detail=f"Kein Zugriff auf Host '{hostname}'")
     return full
 
 
 @router.get("/files")
-async def list_log_files(current_user: dict = Depends(get_current_user)):
+def list_log_files(current_user: dict = Depends(get_current_user)):
     """Return hierarchical listing of log files grouped by host → year → month."""
     allowed = _user_allowed_hosts(current_user["username"])
     if not SYSLOG_DATA_DIR.exists():
@@ -706,7 +714,7 @@ async def list_log_files(current_user: dict = Depends(get_current_user)):
 
 
 @router.get("/files/download")
-async def download_log_file(
+def download_log_file(
     path: str = Query(..., description="Relative path under /data/syslog"),
     current_user: dict = Depends(get_current_user),
 ):
@@ -741,7 +749,7 @@ def _safe_include_path(filename: str) -> Path:
 
 
 @router.get("/includes")
-async def list_includes(current_user: dict = Depends(get_current_user)):
+def list_includes(current_user: dict = Depends(get_current_user)):
     """List all .conf and .json files in /etc/rsyslog.d/."""
     if not RSYSLOG_D.exists():
         return {"files": []}
@@ -762,7 +770,7 @@ async def list_includes(current_user: dict = Depends(get_current_user)):
 
 
 @router.get("/includes/{filename}")
-async def get_include(
+def get_include(
     filename: str,
     current_user: dict = Depends(get_current_user),
 ):
@@ -781,7 +789,7 @@ async def get_include(
 
 
 @router.put("/includes/{filename}")
-async def put_include(
+def put_include(
     filename: str,
     payload: RsyslogConfigUpdate,
     current_user: dict = Depends(require_role([UserRole.admin, UserRole.operator])),
@@ -797,7 +805,7 @@ async def put_include(
 
 
 @router.delete("/includes/{filename}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_include(
+def delete_include(
     filename: str,
     current_user: dict = Depends(require_role([UserRole.admin])),
 ):
@@ -820,7 +828,7 @@ _SAFE_LOOKUP = re.compile(r"^lookup_[\w\-]+\.json$")
 
 
 @router.get("/lookup-tables")
-async def list_lookup_tables(current_user: dict = Depends(get_current_user)):
+def list_lookup_tables(current_user: dict = Depends(get_current_user)):
     """Return all lookup_*.json files from /etc/rsyslog.d/ with their entries."""
     tables: List[Dict] = []
     for f in sorted(RSYSLOG_D.glob("lookup_*.json")):
@@ -837,7 +845,7 @@ async def list_lookup_tables(current_user: dict = Depends(get_current_user)):
 
 
 @router.put("/lookup-tables/{filename}")
-async def update_lookup_table(
+def update_lookup_table(
     filename: str,
     entries: List[Dict],
     current_user: dict = Depends(require_role([UserRole.admin, UserRole.operator])),
@@ -867,7 +875,7 @@ async def update_lookup_table(
 
 
 @router.post("/lookup-tables")
-async def create_lookup_table(
+def create_lookup_table(
     filename: str,
     current_user: dict = Depends(require_role([UserRole.admin])),
 ):
@@ -889,32 +897,55 @@ async def create_lookup_table(
 HEARTBEAT_WARN_S = 900    # 15 min
 HEARTBEAT_CRIT_S = 3600   # 1 h
 
-# StatsView.vue pollt /heartbeat alle 10s; ohne Cache macht das bei jedem Poll
-# einen vollen rglob()+stat() über alle Host-Verzeichnisse. Kurzer TTL reicht,
-# weil der Warn/Crit-Status ohnehin nur in Minuten-Schwellen greift.
+# The frontend polls /heartbeat every 10s (StatsView.vue); without a cache every poll does a
+# full rglob()+stat() over all host directories. A short TTL is enough because the warn/crit
+# status only changes at minute thresholds.
 _HEARTBEAT_CACHE_TTL_S = 15
 _heartbeat_cache: dict[str, tuple[float, list]] = {}  # allowed-key -> (ts, hosts)
 
 
 def _compute_heartbeat(allowed: Optional[List[str]]) -> list:
     now = time.time()
-    result = []
-    for host_dir in sorted(SYSLOG_DATA_DIR.iterdir()):
+    last_seen: Dict[str, float] = {}
+    known_hosts: set = set()
+
+    # List host directories without log files as "unknown" (e.g. just provisioned via
+    # "create directory", no logs yet). Do NOT add category folders (e.g. "others", "BigIP")
+    # as pseudo hosts: only if the folder is empty (freshly created) or contains at least one
+    # file that is named after the folder itself.
+    for host_dir in SYSLOG_DATA_DIR.iterdir():
         if not host_dir.is_dir():
             continue
-        host = host_dir.name
+        name = host_dir.name.lower()
+        log_files = list(host_dir.rglob("*.log*"))
+        if not log_files:
+            # Empty folder: if it has subfolders (e.g. BigIP/NODE1, BigIP/NODE2) list them
+            # individually so it is visible which group is silent; otherwise the folder itself.
+            subdirs = sorted(d.name.lower() for d in host_dir.iterdir() if d.is_dir())
+            if subdirs:
+                known_hosts.update("%s/%s" % (name, sub) for sub in subdirs)
+            else:
+                known_hosts.add(name)
+        elif any(_hostname_from_path(f) == name for f in log_files):
+            known_hosts.add(name)
+
+    # Walk all log files recursively and group by the actual hostname (not by top-level
+    # directory) - covers the host-based as well as the category-based layout ("others/...").
+    for f in SYSLOG_DATA_DIR.rglob("*.log*"):
+        host = _hostname_from_path(f)
+        known_hosts.add(host)
+        try:
+            mtime = f.stat().st_mtime
+        except OSError:
+            continue
+        if host not in last_seen or mtime > last_seen[host]:
+            last_seen[host] = mtime
+
+    result = []
+    for host in sorted(known_hosts):
         if allowed is not None and host not in allowed:
             continue
-
-        last_ts: Optional[float] = None
-        for f in host_dir.rglob("*.log*"):
-            try:
-                mtime = f.stat().st_mtime
-                if last_ts is None or mtime > last_ts:
-                    last_ts = mtime
-            except OSError:
-                pass
-
+        last_ts = last_seen.get(host)
         if last_ts is None:
             result.append({"host": host, "last_seen": None, "age_seconds": None, "status": "unknown"})
         else:
@@ -929,10 +960,11 @@ def _compute_heartbeat(allowed: Optional[List[str]]) -> list:
 
 
 @router.get("/heartbeat")
-async def get_heartbeat(current_user: dict = Depends(get_current_user)):
+def get_heartbeat(current_user: dict = Depends(get_current_user)):
     allowed = _user_allowed_hosts(current_user["username"])
     if not SYSLOG_DATA_DIR.exists():
-        return {"hosts": [], "warn_threshold": HEARTBEAT_WARN_S, "crit_threshold": HEARTBEAT_CRIT_S}
+        return {"hosts": [], "warn_threshold": HEARTBEAT_WARN_S, "crit_threshold": HEARTBEAT_CRIT_S,
+                "unrestricted": allowed is None}
 
     key = ",".join(sorted(allowed)) if allowed is not None else "*"
     cached = _heartbeat_cache.get(key)
@@ -943,7 +975,8 @@ async def get_heartbeat(current_user: dict = Depends(get_current_user)):
         hosts = _compute_heartbeat(allowed)
         _heartbeat_cache[key] = (now, hosts)
 
-    return {"hosts": hosts, "warn_threshold": HEARTBEAT_WARN_S, "crit_threshold": HEARTBEAT_CRIT_S}
+    return {"hosts": hosts, "warn_threshold": HEARTBEAT_WARN_S, "crit_threshold": HEARTBEAT_CRIT_S,
+            "unrestricted": allowed is None}
 
 
 # ── Event-rate + Anomalie-Erkennung ─────────────────────────────────────────
@@ -954,16 +987,19 @@ ANOMALY_FACTOR      = 3.0    # current hour > N× rolling average → anomaly
 
 
 def _tail_lines(path: Path, n: int = 30000) -> List[str]:
+    """Letzte n Zeilen streamend lesen, ohne die ganze Datei in den Speicher zu laden
+    (Log-Dateien können hunderte MB groß werden — .read_text() auf der kompletten
+    Datei hat den API-Prozess bereits einmal per OOM-Killer abschießen lassen)."""
     try:
         import gzip as _gzip
-        if path.suffix == ".gz":
-            with _gzip.open(path, "rt", errors="ignore") as fh:
-                return list(fh)[-n:]
-        content = path.read_text(errors="ignore")
-        lines = content.splitlines()
-        return lines[-n:]
+        opener = _gzip.open if path.suffix == ".gz" else open
+        with opener(path, "rt", errors="ignore") as fh:
+            return list(deque(fh, maxlen=n))
     except Exception:
         return []
+
+
+_RE_EVENT_TS = re.compile(r'"(?:timereported|timestamp)"\s*:\s*"([^"]+)"')
 
 
 def _count_events_per_host(allowed: Optional[List[str]], days_back: int = 14
@@ -979,17 +1015,20 @@ def _count_events_per_host(allowed: Optional[List[str]], days_back: int = 14
     cutoff = now - timedelta(days=days_back)
     result: Dict[str, Dict[str, int]] = {}
 
-    for host_dir in sorted(SYSLOG_DATA_DIR.iterdir()):
-        if not host_dir.is_dir():
-            continue
-        host = host_dir.name
+    # Group files by the actual hostname (not by top-level directory) - covers both
+    # the host-based and the category-based layout, see _hostname_from_path.
+    files_by_host: Dict[str, list] = {}
+    for f in SYSLOG_DATA_DIR.rglob("*.log"):
+        host = _hostname_from_path(f)
         if allowed is not None and host not in allowed:
             continue
+        files_by_host.setdefault(host, []).append(f)
 
+    for host, files in files_by_host.items():
         hourly = {i: 0 for i in range(24)}
         daily  = {i: 0 for i in range(days_back)}
 
-        for f in sorted(host_dir.rglob("*.log")):
+        for f in sorted(files):
             try:
                 mtime = datetime.utcfromtimestamp(f.stat().st_mtime)
                 if mtime < cutoff:
@@ -1002,9 +1041,16 @@ def _count_events_per_host(allowed: Optional[List[str]], days_back: int = 14
                 if not line:
                     continue
                 try:
-                    entry = json.loads(line)
-                    ts_raw = entry.get("timereported") or entry.get("timestamp", "")
-                    ts = datetime.fromisoformat(ts_raw[:19])   # strip tz suffix
+                    # Regex instead of json.loads: lines are often not valid JSON
+                    # (unquoted "message") - every such line would be dropped otherwise.
+                    m = _RE_EVENT_TS.search(line)
+                    if not m:
+                        continue
+                    ts_aw = _parse_ts(m.group(1))
+                    if ts_aw is None:
+                        continue
+                    # Respect the offset (rsyslog writes local time, e.g. +02:00)
+                    ts = ts_aw.astimezone(timezone.utc).replace(tzinfo=None)
                     diff = now - ts
                     h = int(diff.total_seconds() / 3600)
                     d = int(diff.total_seconds() / 86400)
@@ -1020,9 +1066,9 @@ def _count_events_per_host(allowed: Optional[List[str]], days_back: int = 14
     return result
 
 
-_EVENT_RATE_CACHE_TTL_S = 120  # StatsView.vue pollt alle 10s; 14-Tage-Rescan über
-# alle Hosts ist teuer (voller Datei-Reread + JSON-Parse pro Zeile) — ohne Cache
-# verursacht das bei dem Poll-Intervall spürbare CPU/IO-Bursts.
+_EVENT_RATE_CACHE_TTL_S = 30  # StatsView.vue polls every 10s; a 14-day rescan over all hosts is
+# expensive (re-reads every log file). A short cache is enough because the bucket data hardly
+# changes within 30s.
 _event_rate_cache: dict[str, tuple[float, dict]] = {}  # allowed-key -> (ts, counts)
 
 
@@ -1078,7 +1124,7 @@ def _send_anomaly_email(host: str, current_count: int, avg_count: float,
 
 
 @router.get("/event-rate")
-async def get_event_rate(current_user: dict = Depends(get_current_user)):
+def get_event_rate(current_user: dict = Depends(get_current_user)):
     allowed = _user_allowed_hosts(current_user["username"])
     counts  = _count_events_per_host_cached(allowed, days_back=14)
 
@@ -1203,7 +1249,7 @@ def _parse_receiver_ports() -> List[Dict]:
 
 
 @router.get("/receiver-ports")
-async def get_receiver_ports(current_user: dict = Depends(get_current_user)):
+def get_receiver_ports(current_user: dict = Depends(get_current_user)):
     """Return configured UDP/TCP input ports parsed from rsyslog.conf + /etc/rsyslog.d/."""
     return {"ports": _parse_receiver_ports()}
 
@@ -1211,7 +1257,7 @@ async def get_receiver_ports(current_user: dict = Depends(get_current_user)):
 # ── Log-Directories ──────────────────────────────────────────────────────────
 
 @router.get("/log-dirs")
-async def get_log_dirs(current_user: dict = Depends(get_current_user)):
+def get_log_dirs(current_user: dict = Depends(get_current_user)):
     """Return /data/syslog/ subdirectories with size, ownership, and permissions."""
     import pwd
     import grp
@@ -1260,7 +1306,7 @@ async def get_log_dirs(current_user: dict = Depends(get_current_user)):
 
 
 @router.post("/log-dirs/ensure")
-async def ensure_log_dir(
+def ensure_log_dir(
     payload: dict,
     current_user: dict = Depends(require_role([UserRole.admin, UserRole.operator])),
 ):

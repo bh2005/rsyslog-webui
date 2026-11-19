@@ -48,7 +48,7 @@ def read_audit(limit: int = 500) -> list[dict]:
 
 
 @router.get("")
-async def get_audit_log(
+def get_audit_log(
     limit: int = Query(200, ge=10, le=2000),
     _: dict = Depends(require_role([UserRole.admin])),
 ):
@@ -56,7 +56,7 @@ async def get_audit_log(
 
 
 @router.delete("", status_code=204)
-async def clear_audit_log(_: dict = Depends(require_role([UserRole.admin]))):
+def clear_audit_log(_: dict = Depends(require_role([UserRole.admin]))):
     """Truncate the audit log (irreversible)."""
     if AUDIT_LOG.exists():
         AUDIT_LOG.write_text("")

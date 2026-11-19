@@ -12,7 +12,7 @@ _VALID_LEVELS = {"ALL", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
 
 @router.get("")
-async def list_syslogs(
+def list_syslogs(
     level: str = Query("ALL"),
     limit: int = Query(500, ge=1, le=2000),
     _: dict = Depends(require_role([UserRole.admin])),

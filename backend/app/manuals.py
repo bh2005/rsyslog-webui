@@ -62,12 +62,12 @@ def _resolve(name: str) -> tuple[Path, bool]:
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("")
-async def list_manuals(_: dict = Depends(get_current_user)):
+def list_manuals(_: dict = Depends(get_current_user)):
     return {"files": _list_files()}
 
 
 @router.get("/{name}/content", response_class=HTMLResponse)
-async def get_manual_content(name: str, _: dict = Depends(get_current_user)):
+def get_manual_content(name: str, _: dict = Depends(get_current_user)):
     path, _ = _resolve(name)
     return HTMLResponse(content=path.read_text(encoding="utf-8", errors="replace"))
 
@@ -93,7 +93,7 @@ async def upload_manual(
 
 
 @router.delete("/{name}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_manual(
+def delete_manual(
     name: str,
     current_user: dict = Depends(require_role([UserRole.admin])),
 ):

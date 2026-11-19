@@ -67,6 +67,7 @@ Default login: `admin` / `admin` — **change immediately!**
 |---|---|
 | `SECRET_KEY` | JWT signing key — required |
 | `LOG_LEVEL` | `DEBUG` / `INFO` / `WARNING` (default: `INFO`) |
+| `WORKER_THREADS` | Maximum parallel threads for blocking requests (file scans); lower it on small hosts (default: `8`) |
 
 Generate a secret key:
 ```bash

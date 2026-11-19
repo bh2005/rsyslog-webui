@@ -14,6 +14,9 @@
   server-side so the row limit does not cut off older ranges
 
 ### Fixed
+- Reading large log files no longer loads them completely into memory (streaming tail), which could get the API process killed
+  by the OOM killer
+- Receiver: the directory lookup is case-insensitive, so the misleading "create directory" button no longer appears for existing folders
 - Validation errors from custom validators returned HTTP 500 instead of 422 (non-serializable error context)
 - API errors now also carry `detail` (as the frontend expects). Before, the UI always showed its generic
   fallback (e.g. "Login failed") instead of the backend message (e.g. locked account, invalid regex)
@@ -23,6 +26,16 @@
   log files are read from the end instead of fully (large files)
 
 ### Changed
+- Performance: routes that do blocking file/process I/O are now plain `def` handlers (run in a thread pool) instead of
+  `async def`, so one heavy request no longer blocks the whole worker; the thread pool is limited (`WORKER_THREADS`, default 8)
+  to keep small hosts responsive
+- Statistics: the events-per-second counter only reads the bytes appended since the last call (and skips files that were not
+  touched for an hour) instead of re-reading every log file on each request
+- Event rate: timestamps are extracted with a regex (works for lines that are not valid JSON) and the time zone offset is
+  respected; cache TTL reduced to 30 s
+- Host names are handled case-insensitively (rsyslog keeps the capitalization of the sender); assigned hosts are compared lowercased
+- Heartbeat: works for both the host-based and the category-based log layout; empty group folders are listed per subfolder
+  (e.g. `bigip/node1`, `bigip/node2`) so it is visible which group is silent; response contains `unrestricted`
 - Receiver: sender hosts without any log file show "keine Logs empfangen" instead of an empty cell
 - Help panel: corrected log analysis limits (10-2000), added time range, new help page for the receiver view
 - Manual: log analysis (remote syslog) section and `remote-logs` API entry
